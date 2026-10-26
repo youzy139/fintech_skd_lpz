@@ -46,6 +46,7 @@ function App() {
   }, [selectedAsset])
 
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }) }, [page])
   useEffect(() => {
     if (!selectedAsset) return
     api<AssetSeries>(`/api/assets/${encodeURIComponent(selectedAsset)}/series?limit=500`).then(setSeries).catch(() => setSeries(null))
@@ -80,9 +81,9 @@ function App() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">M</span><div>MarketLens<small>市场状态监控平台</small></div></div>
       <nav>{pages.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><span>{icon}</span>{label}{id === 'alerts' && alerts.length > 0 && <b>{alerts.length}</b>}</button>)}</nav>
-      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.1.1 · 测试版本</small></div>
+      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.1.2 · 测试版本</small></div>
     </aside>
-    <main className="main">
+    <main className="main" key={page}>
       <header><div><p className="eyebrow">MULTI-ASSET INTELLIGENCE</p><h1>{pages.find(item => item[0] === page)?.[1]}</h1></div><div className="asof"><span>数据截至</span><strong>{dateText(latest.date)}</strong></div></header>
       {error && <div className="error">{error}</div>}
 

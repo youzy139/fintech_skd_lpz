@@ -43,7 +43,7 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
         if service is None:
             app.state.service.close()
 
-    app = FastAPI(title="金融市场状态监控平台", version="0.1.1", lifespan=lifespan)
+    app = FastAPI(title="金融市场状态监控平台", version="0.1.2", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])
     requests: dict[str, deque[float]] = defaultdict(deque)
 
@@ -65,7 +65,7 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
     @app.get("/api/health")
     def health(request: Request):
         service = current_service(request)
-        return {"status": "ok", "version": "0.1.1", "assets": len(service.series), "states": len(service.states)}
+        return {"status": "ok", "version": "0.1.2", "assets": len(service.series), "states": len(service.states)}
 
     @app.get("/api/assets")
     def assets(request: Request):

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
@@ -15,8 +15,13 @@ const responses: Record<string, unknown> = {
 }
 
 describe('App', () => {
-  beforeEach(() => { vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(responses[path]) }))) })
-  afterEach(() => vi.unstubAllGlobals())
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(responses[path]) })))
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true })
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
   it('opens the dashboard from the landing page and returns home', async () => {
     render(<App />)
     expect(screen.getByText('读懂市场状态，')).toBeInTheDocument()
@@ -27,5 +32,30 @@ describe('App', () => {
     expect(screen.getByText('314,318')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /网站首页/ }))
     expect(screen.getByText('从一个更清晰的视角，观察市场。')).toBeInTheDocument()
+  })
+  it('animates scrolling and finishes at exact scrollTop zero', () => {
+    const frames = new Map<number, FrameRequestCallback>()
+    let nextId = 0
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => { frames.set(++nextId, callback); return nextId }))
+    vi.stubGlobal('cancelAnimationFrame', vi.fn((id: number) => frames.delete(id)))
+    vi.spyOn(performance, 'now').mockReturnValue(0)
+    render(<App />)
+    document.documentElement.scrollTop = 600
+    Object.defineProperty(window, 'scrollY', { value: 600, writable: true })
+    fireEvent.scroll(window)
+    const button = screen.getByRole('button', { name: '回到顶部' })
+    expect(button.className).toContain('visible')
+    fireEvent.click(button)
+    expect(document.documentElement.style.scrollBehavior).toBe('auto')
+    let now = 0
+    while (frames.size) {
+      const callbacks = [...frames.values()]
+      frames.clear()
+      callbacks.forEach(callback => callback(now))
+      now += 200
+    }
+    expect(document.documentElement.scrollTop).toBe(0)
+    expect(document.body.scrollTop).toBe(0)
+    expect(document.documentElement.style.scrollBehavior).toBe('')
   })
 })
