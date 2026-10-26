@@ -17,10 +17,15 @@ const responses: Record<string, unknown> = {
 describe('App', () => {
   beforeEach(() => { vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(responses[path]) }))) })
   afterEach(() => vi.unstubAllGlobals())
-  it('renders API market state instead of hardcoded results', async () => {
+  it('opens the dashboard from the landing page and returns home', async () => {
     render(<App />)
-    await waitFor(() => expect(screen.getAllByText('震荡平衡 · C1').length).toBeGreaterThan(0))
+    expect(screen.getByText('读懂市场状态，')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('震荡平衡 · C1')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /进入市场工作台/ }))
+    expect(screen.getByRole('heading', { name: '市场总览' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /数据中心/ }))
     expect(screen.getByText('314,318')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /网站首页/ }))
+    expect(screen.getByText('从一个更清晰的视角，观察市场。')).toBeInTheDocument()
   })
 })

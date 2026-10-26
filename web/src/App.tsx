@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Chart from './Chart'
+import Landing from './Landing'
 import { api } from './api'
 import type { Alert, Asset, AssetSeries, Quality, Regime } from './types'
 
 const pages = [
+  ['home', '网站首页', '⌂'],
   ['overview', '市场总览', '⌁'],
   ['regimes', '状态分析', '◫'],
   ['features', '特征分析', '∿'],
@@ -25,7 +27,7 @@ function Panel({ title, subtitle, children, action }: { title: string; subtitle?
 }
 
 function App() {
-  const [page, setPage] = useState<Page>('overview')
+  const [page, setPage] = useState<Page>('home')
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState('')
   const [selectedAsset, setSelectedAsset] = useState('SPX.GI')
@@ -67,6 +69,7 @@ function App() {
     }
   }, [data])
 
+  if (page === 'home') return <Landing data={data} onEnter={() => setPage('overview')} />
   if (!data && !error) return <main className="boot"><div className="loader" /><h1>MarketLens</h1><p>正在计算真实市场特征与状态…</p></main>
   if (!data) return <main className="boot"><h1>暂时无法连接</h1><p>{error}</p><button onClick={() => void load()}>重新连接</button></main>
 
@@ -77,7 +80,7 @@ function App() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">M</span><div>MarketLens<small>市场状态监控平台</small></div></div>
       <nav>{pages.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><span>{icon}</span>{label}{id === 'alerts' && alerts.length > 0 && <b>{alerts.length}</b>}</button>)}</nav>
-      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.1.0 · 测试版本</small></div>
+      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.1.1 · 测试版本</small></div>
     </aside>
     <main className="main">
       <header><div><p className="eyebrow">MULTI-ASSET INTELLIGENCE</p><h1>{pages.find(item => item[0] === page)?.[1]}</h1></div><div className="asof"><span>数据截至</span><strong>{dateText(latest.date)}</strong></div></header>
