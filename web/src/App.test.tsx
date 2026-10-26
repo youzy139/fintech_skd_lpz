@@ -12,6 +12,9 @@ const responses: Record<string, unknown> = {
   '/api/alerts?limit=100': [],
   '/api/data/quality': { catalog_records: 40, loaded_assets: 39, invalid_rows: 0, duplicate_dates: 0, total_rows: 314318 },
   '/api/assets/SPX.GI/series?limit=500': { points: [] },
+  '/api/data/summary': { total_files: 1046, imported_files: 1046, total_records: 1556492, errors: 0, groups: [{ kind: 'social', files: 1, records: 2 }] },
+  '/api/data/files?offset=0&limit=20': { total: 1, offset: 0, limit: 20, items: [{ id: 'source', kind: 'social', path: '科技.csv', status: 'imported', record_count: 2, error_count: 0, sheets: [], size: 100 }] },
+  '/api/data/files/source/records?limit=5&offset=0': { total: 1, offset: 0, limit: 5, items: [{ record_index: 0, event_date: '2024-01-02', title: '测试记录', payload: { text: '<b>原文</b>' } }] },
 }
 
 describe('App', () => {
@@ -32,6 +35,18 @@ describe('App', () => {
     expect(screen.getByText('314,318')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /网站首页/ }))
     expect(screen.getByText('从一个更清晰的视角，观察市场。')).toBeInTheDocument()
+  })
+  it('shows the full source catalog and safe raw record previews', async () => {
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('震荡平衡 · C1')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /进入市场工作台/ }))
+    fireEvent.click(screen.getByRole('button', { name: /数据中心/ }))
+    fireEvent.click(screen.getByRole('button', { name: '全量数据源' }))
+    await waitFor(() => expect(screen.getByText('1,556,492')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '查看记录' }))
+    await waitFor(() => expect(screen.getByText('测试记录', { exact: false })).toBeInTheDocument())
+    expect(screen.getByText(/<b>原文<\/b>/)).toBeInTheDocument()
+    expect(screen.queryByText('原文', { selector: 'b' })).toBeNull()
   })
   it('animates scrolling and finishes at exact scrollTop zero', () => {
     const frames = new Map<number, FrameRequestCallback>()

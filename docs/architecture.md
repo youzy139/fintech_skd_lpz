@@ -108,6 +108,8 @@
 
 存储设计需进一步落实 ODS/DWD/DWS/ADS 分层、时序分区、索引和生命周期策略。
 
+`v0.2.0` 当前本地实现使用 SQLite：`source_files` 保存文件目录、指纹、状态和质量，`source_records` 保存分页可查询的原始 JSON 负载，`import_batches` 记录导入批次。大型 CSV 按 1,000 条逻辑记录分批写入，Excel 使用只读模式，未变化文件跳过重导。该实现用于本地开发与验证，后续再迁移到上述分布式存储。
+
 ### 6.5 服务层
 
 - API Gateway：统一入口、认证、限流与路由。
@@ -144,7 +146,7 @@ LLM 不得直接修改原始行情、特征、状态标签、已触发预警或�
 3. 市场状态分析：状态时间轴、热力图、切换记录和贡献特征。
 4. 特征分析：收益率、波动率、动量、相关性及特征重要性。
 5. 预警中心：预警列表、级别筛选和触发证据；规则配置与历史回测仍待实现。
-6. 数据中心：数据覆盖、资产目录和质量摘要；文件检索与 AI 助手仍待实现。
+6. 数据中心：资产目录与全量数据源双视图，展示类型统计、文件搜索、分页目录和安全原文预览；AI 助手仍待实现。
 
 首页与工作台可以双向导航，首页即使后端暂不可用也保留产品介绍与入口。进入工作台时内容从右侧滑入，返回首页时从左侧滑入，工作台内部保留轻量内容过渡。锚点采用平滑滚动，但页面不设置顶部滚动偏移；首页滚动超过 360px 后显示右下角回到顶部按钮，通过 `requestAnimationFrame` 逐帧设置实际滚动容器位置，动画期间临时将 CSS `scroll-behavior` 设为 `auto` 以避免双重动画，末帧强制 `scrollTop = 0` 后恢复原设置。动画遵循 `prefers-reduced-motion`，切换页面时重置到顶部。
 
@@ -164,18 +166,18 @@ LLM 不得直接修改原始行情、特征、状态标签、已触发预警或�
 
 ```text
 market_core/
-  domain/              # 资产、质量和预警领域对象
-  ingestion/           # 真实资产目录与 CSV 接入
+  domain/              # 资产、预警、数据文件与记录领域对象
+  ingestion/           # 资产、Excel、CSV、新闻与 Markdown 适配器
   models/              # 特征、walk-forward 状态模型与预警
 server/
   app/api/             # API 模块边界
   app/core/            # 服务配置
-  app/services/        # 应用服务组装与 SQLite 快照
+  app/services/        # 应用组装、全量导入、SQLite 目录与快照
   app/main.py          # REST、GraphQL、WebSocket 入口
-  tests/               # 核心与接口测试
+  tests/               # 核心、导入与接口测试
   config.example.json  # 无密钥配置模板
   config.json          # 本地私有配置，Git 忽略
-  data/                # 本地运行时数据，Git 忽略
+  data/                # SQLite 与测试运行时数据，Git 忽略
 web/                   # React + TypeScript + ECharts 前端
 docs/                  # 架构和后续数据、模型文档
 ```
@@ -194,7 +196,7 @@ docs/                  # 架构和后续数据、模型文档
 
 ## 10. 后续工作
 
-1. 接入全部赛题文件，补充宏观、事件与文本适配器和质量报告。
+1. 在已完成的全部文件接入基础上，将宏观、事件和文本信号纳入特征与模型。
 2. 落地 Kafka/Flink、MySQL/ClickHouse/Redis/MinIO 与独立微服务，确定 Java/Caffeine 网关方案。
 3. 完善模型标签体系、回测、权限认证、缓存和 LLM 助手。
 4. 提供并验证完整 Docker Compose 一键启动和性能指标。

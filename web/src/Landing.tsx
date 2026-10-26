@@ -56,7 +56,7 @@ export default function Landing({ data, onEnter }: { data: LandingData | null; o
 
       <section className="landing-cta"><span>MARKETLENS WORKSPACE</span><h2>从一个更清晰的视角，观察市场。</h2><p>进入工作台，探索市场状态、关键特征与风险预警。</p><button className="primary-action" onClick={onEnter}>开始探索 <span>→</span></button></section>
     </main>
-    <footer className="landing-footer"><div className="landing-brand"><span className="brand-mark">M</span><span>MarketLens</span></div><p>市场状态用于研究辅助，不构成投资建议 · v0.1.2 测试版本</p></footer>
+    <footer className="landing-footer"><div className="landing-brand"><span className="brand-mark">M</span><span>MarketLens</span></div><p>市场状态用于研究辅助，不构成投资建议 · v0.2.0 测试版本</p></footer>
     <button className={`back-to-top ${showBackToTop ? 'visible' : ''}`} onClick={backToTop} aria-label="回到顶部" title="回到顶部" tabIndex={showBackToTop ? 0 : -1}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></button>
   </div>
 }

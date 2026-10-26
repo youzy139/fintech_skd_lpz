@@ -6,16 +6,17 @@
 
 ## 当前状态
 
-当前为 `v0.1.2` 测试版本，已跑通真实资产数据到 Web 看板的本地垂直闭环。首页与工作台支持双向导航、平滑内容过渡、锚点滚动和右下角回到顶部，并适配系统“减少动态效果”设置：
+当前为 `v0.2.0` 测试版本，已完成全量赛题数据接入与真实资产市场监控闭环：
 
-- 读取代码目录中的 39 个可用资产，共 314,318 条行情记录，区分价格与债券收益率。
+- 1,046 个输入文件全部登记并导入本地 SQLite，共 1,556,492 条逻辑记录，首次全量导入无失败文件。
+- 39 个可用资产包含 314,318 条行情记录；新闻 900,704 条、科技 41,413 条、宏观日历 185,753 条、研究摘要 1,000 篇，指标工作簿 31 个 sheet 全部处理。
+- 数据中心支持类型统计、文件搜索、分页目录和原始记录安全预览，不把 HTML 注入页面。
 - 计算市场收益、20 日年化波动率、60 日动量、趋势和资产相关性。
 - 使用滚动训练窗口内的 StandardScaler、PCA 与 KMeans 逐日识别状态，训练数据严格早于识别日。
-- 生成高波动、相关性异常和状态切换预警。
-- 提供 REST、GraphQL、WebSocket 历史回放和 OpenAPI 文档。
-- React 看板包含市场总览、状态分析、特征分析、预警中心和数据中心。
+- 生成高波动、相关性异常和状态切换预警，提供 REST、GraphQL、WebSocket 和 OpenAPI。
+- 首页与工作台支持双向导航、平滑过渡、锚点滚动和精确回到顶部。
 
-本轮尚未接入其余赛题文件，也尚未实现 Kafka/Flink、MySQL/ClickHouse/Redis/MinIO、独立微服务、完整权限、LLM 助手和 Docker Compose。最终竞赛交付仍需完成这些工作。
+当前 SQLite 是本地持久化实现，不代表分布式改造完成。Kafka/Flink、MySQL/ClickHouse/Redis/MinIO、独立微服务、完整权限、LLM 助手和 Docker Compose 仍是后续工作。
 
 ## 本地启动
 
@@ -28,6 +29,9 @@ conda run -n fintech python -m pip install -r requirements-dev.txt
 
 # 可选：复制本地私有配置；config.json 与 server/data/ 不会进入 Git
 cp server/config.example.json server/config.json
+
+# 首次执行全量导入；后续运行会跳过未变化文件
+PYTHONPATH="C:/Users/15214/Desktop/project/fintech/server;C:/Users/15214/Desktop/project/fintech" PYTHONUTF8=1 C:/ProgramData/miniconda3/envs/fintech/python.exe -m app.services.import_data
 
 # 启动后端，首次初始化需要计算真实历史特征
 PYTHONPATH=. PYTHONUTF8=1 conda run -n fintech uvicorn app.main:app --app-dir server --host 127.0.0.1 --port 8000
@@ -82,7 +86,7 @@ cd web && npm test && npm run build
 
 ## 版本约定
 
-版本号采用 `v主版本.次版本.修订号` 的三段式格式，并通过 Git 标签标记版本。当前补丁版本为 `v0.1.2`。本地提交与标签可以先完成，远程推送必须等待实际体验并明确确认。
+版本号采用 `v主版本.次版本.修订号` 的三段式格式，并通过 Git 标签标记版本。当前版本为 `v0.2.0`。本地提交与标签可以先完成，远程推送必须等待实际体验并明确确认。
 
 ### 测试版本：`v0.x`
 

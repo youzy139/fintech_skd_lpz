@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Chart from './Chart'
 import Landing from './Landing'
+import SourceCatalog from './SourceCatalog'
 import { api } from './api'
 import type { Alert, Asset, AssetSeries, Quality, Regime } from './types'
 
@@ -33,6 +34,7 @@ function App() {
   const [selectedAsset, setSelectedAsset] = useState('SPX.GI')
   const [series, setSeries] = useState<AssetSeries | null>(null)
   const [alertFilter, setAlertFilter] = useState('all')
+  const [dataView, setDataView] = useState<'assets' | 'sources'>('assets')
 
   const load = useCallback(async () => {
     setError('')
@@ -81,7 +83,7 @@ function App() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">M</span><div>MarketLens<small>市场状态监控平台</small></div></div>
       <nav>{pages.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><span>{icon}</span>{label}{id === 'alerts' && alerts.length > 0 && <b>{alerts.length}</b>}</button>)}</nav>
-      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.1.2 · 测试版本</small></div>
+      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.2.0 · 测试版本</small></div>
     </aside>
     <main className="main" key={page}>
       <header><div><p className="eyebrow">MULTI-ASSET INTELLIGENCE</p><h1>{pages.find(item => item[0] === page)?.[1]}</h1></div><div className="asof"><span>数据截至</span><strong>{dateText(latest.date)}</strong></div></header>
@@ -115,8 +117,11 @@ function App() {
       {page === 'alerts' && <Panel title="预警记录" subtitle="高波动、相关性异常与状态切换" action={<select value={alertFilter} onChange={event => setAlertFilter(event.target.value)}><option value="all">全部级别</option><option value="high">高级别</option><option value="medium">中级别</option></select>}><AlertList alerts={filteredAlerts} /></Panel>}
 
       {page === 'data' && <>
-        <div className="metrics"><div className="metric"><span>资产目录</span><strong>{quality.catalog_records}</strong><small>代码对照记录</small></div><div className="metric"><span>已接入资产</span><strong>{quality.loaded_assets}</strong><small>实际可用序列</small></div><div className="metric"><span>行情记录</span><strong>{quality.total_rows.toLocaleString()}</strong><small>真实 CSV 数据</small></div><div className="metric"><span>质量异常</span><strong>{quality.invalid_rows + quality.duplicate_dates}</strong><small>非法行与重复日期</small></div></div>
-        <Panel title="资产数据目录" subtitle="保留原始交易日历与字段类型，不统一填充日期"><div className="table-wrap"><table><thead><tr><th>资产</th><th>Wind 代码</th><th>类别</th><th>字段</th><th>覆盖范围</th><th>记录数</th></tr></thead><tbody>{assets.map(item => <tr key={item.code}><td>{item.name}</td><td className="mono">{item.code}</td><td>{item.category}</td><td><span className="tag">{item.field}</span></td><td>{item.start} ~ {item.end}</td><td>{item.rows.toLocaleString()}</td></tr>)}</tbody></table></div></Panel>
+        <div className="view-tabs"><button className={dataView === 'assets' ? 'active' : ''} onClick={() => setDataView('assets')}>资产目录</button><button className={dataView === 'sources' ? 'active' : ''} onClick={() => setDataView('sources')}>全量数据源</button></div>
+        {dataView === 'assets' ? <>
+          <div className="metrics"><div className="metric"><span>资产目录</span><strong>{quality.catalog_records}</strong><small>代码对照记录</small></div><div className="metric"><span>已接入资产</span><strong>{quality.loaded_assets}</strong><small>实际可用序列</small></div><div className="metric"><span>行情记录</span><strong>{quality.total_rows.toLocaleString()}</strong><small>真实 CSV 数据</small></div><div className="metric"><span>质量异常</span><strong>{quality.invalid_rows + quality.duplicate_dates}</strong><small>非法行与重复日期</small></div></div>
+          <Panel title="资产数据目录" subtitle="保留原始交易日历与字段类型，不统一填充日期"><div className="table-wrap"><table><thead><tr><th>资产</th><th>Wind 代码</th><th>类别</th><th>字段</th><th>覆盖范围</th><th>记录数</th></tr></thead><tbody>{assets.map(item => <tr key={item.code}><td>{item.name}</td><td className="mono">{item.code}</td><td>{item.category}</td><td><span className="tag">{item.field}</span></td><td>{item.start} ~ {item.end}</td><td>{item.rows.toLocaleString()}</td></tr>)}</tbody></table></div></Panel>
+        </> : <SourceCatalog />}
       </>}
       <footer>MarketLens · 市场状态用于研究辅助，不构成投资建议</footer>
     </main>

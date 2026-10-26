@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import Any
 
 from app.core.config import AppConfig
+from app.services.catalog import CatalogStore
 from app.services.storage import SnapshotStore
 from market_core.domain.market import AssetSeries
 from market_core.ingestion.assets import AssetRepository
@@ -20,6 +22,7 @@ class MarketService:
         self.alerts: list[dict] = []
         self.quality: dict = {}
         self.store = SnapshotStore(config.database_path)
+        self.catalog = CatalogStore(config.database_path)
 
     def initialize(self) -> None:
         self.series, quality = self.repository.load_all()
@@ -30,7 +33,7 @@ class MarketService:
         model = WalkForwardRegimeModel(settings["minimum_history"], settings["training_window"], settings["refit_interval"], settings["cluster_count"], settings["random_seed"])
         self.states = model.predict(features)
         self.alerts = [asdict(item) for item in generate_alerts(self.states, self.config.alerts["volatility_quantile"], self.config.alerts["correlation_quantile"])]
-        self.quality = asdict(quality)
+        self.quality = {**asdict(quality), "sources": self.catalog.summary()}
         self.store.save("quality", self.quality)
         self.store.save("states", self.states)
         self.store.save("alerts", self.alerts)
@@ -50,5 +53,15 @@ class MarketService:
             raise RuntimeError("状态模型尚未初始化")
         return self.states[-1]
 
+    def source_summary(self) -> dict[str, Any]:
+        return self.catalog.summary()
+
+    def source_files(self, kind: str | None, query: str | None, offset: int, limit: int) -> dict[str, Any]:
+        return self.catalog.list_files(kind, query, offset, limit)
+
+    def source_records(self, source_id: str, query: str | None, date: str | None, offset: int, limit: int) -> dict[str, Any]:
+        return self.catalog.list_records(source_id, query, date, offset, limit)
+
     def close(self) -> None:
         self.store.close()
+        self.catalog.close()

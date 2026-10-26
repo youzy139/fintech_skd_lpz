@@ -16,7 +16,7 @@ def fake_service():
     series = AssetSeries(meta, pd.DataFrame({"date": pd.to_datetime(["2024-01-01", "2024-01-02"]), "value": [100, 102]}))
     state = {"date": "2024-01-02", "label": "趋势上涨", "confidence": 0.8, "model_version": "test", "features": {"volatility": 0.2}, "contributions": []}
     helper = MarketServiceAssets([series])
-    return SimpleNamespace(series=[series], states=[state], alerts=[{"date": "2024-01-02", "rule": "TEST", "level": "low"}], quality={"loaded_assets": 1}, assets=helper.assets, latest_state=lambda: state, asset_series=helper.asset_series)
+    return SimpleNamespace(series=[series], states=[state], alerts=[{"date": "2024-01-02", "rule": "TEST", "level": "low"}], quality={"loaded_assets": 1}, assets=helper.assets, latest_state=lambda: state, asset_series=helper.asset_series, source_summary=lambda: {"total_files": 1, "imported_files": 1, "total_records": 2, "errors": 0, "groups": []}, source_files=lambda kind, query, offset, limit: {"total": 1, "items": [{"id": "source", "path": "科技.csv", "status": "imported", "record_count": 2}]}, source_records=lambda source_id, query, date, offset, limit: {"total": 1, "items": [{"record_index": 0, "title": "测试记录", "payload": {"text": "<b>原文</b>"}}]})
 
 
 class MarketServiceAssets:
@@ -50,3 +50,12 @@ def test_websocket_replay_has_event_time():
             message = websocket.receive_json()
             assert message["event_time"] == "2024-01-02"
             assert websocket.receive_json()["type"] == "replay_complete"
+
+
+def test_source_catalog_and_graphql_summary():
+    with client() as http:
+        assert http.get("/api/data/summary").json()["total_records"] == 2
+        assert http.get("/api/data/files?kind=social").json()["items"][0]["path"] == "科技.csv"
+        assert http.get("/api/data/files/source/records").json()["items"][0]["payload"]["text"] == "<b>原文</b>"
+        response = http.post("/graphql", json={"query": "{ sourceSummary }"})
+        assert response.json()["data"]["sourceSummary"]["imported_files"] == 1
