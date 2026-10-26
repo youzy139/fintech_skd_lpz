@@ -1,0 +1,33 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Python and Conda development
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Competition source data and local runtime configuration
+上科大数据合集/
+server/config.json
+server/data/
+
+# Test and coverage output
+.coverage
+htmlcov/
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.npm-cache/
+*.tsbuildinfo
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

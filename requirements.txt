@@ -1,0 +1,7 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+numpy==2.2.5
+pandas==2.2.3
+scikit-learn==1.6.1
+strawberry-graphql==0.270.5
+graphql-core==3.2.6

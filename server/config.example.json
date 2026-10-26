@@ -1,0 +1,22 @@
+{
+  "data_root": "../上科大数据合集",
+  "database_path": "data/market.db",
+  "model": {
+    "analysis_start": "2015-01-01",
+    "minimum_history": 504,
+    "training_window": 756,
+    "refit_interval": 63,
+    "volatility_window": 20,
+    "momentum_window": 60,
+    "cluster_count": 3,
+    "random_seed": 42
+  },
+  "alerts": {
+    "volatility_quantile": 0.9,
+    "correlation_quantile": 0.9
+  },
+  "replay": {
+    "interval_ms": 500
+  },
+  "cors_origins": ["http://localhost:5173"]
+}
