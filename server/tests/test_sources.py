@@ -28,6 +28,19 @@ def test_news_multiline_html_is_one_logical_record(tmp_path: Path):
     assert "\n" in records[0].payload["column_3"]
 
 
+def test_social_event_date_is_normalized_without_changing_raw_value(tmp_path: Path):
+    item = source(tmp_path, "social.csv", "social")
+    with item.absolute_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["created_at_twitter", "text"])
+        writer.writeheader()
+        writer.writerow({"created_at_twitter": "2026/7/9 2", "text": "帖子"})
+        writer.writerow({"created_at_twitter": "2026/13/9 2", "text": "无效日期"})
+    records = list(iter_records(item))
+    assert records[0].event_date == "2026-07-09"
+    assert records[0].payload["created_at_twitter"] == "2026/7/9 2"
+    assert records[1].event_date is None
+
+
 def test_indicator_reads_every_sheet(tmp_path: Path):
     item = source(tmp_path, "indicators.xlsx", "indicator")
     workbook = Workbook()

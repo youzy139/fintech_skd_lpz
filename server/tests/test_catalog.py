@@ -7,13 +7,13 @@ from app.services.catalog import CatalogStore
 from market_core.domain.sources import SourceFile
 
 
-def make_source(tmp_path: Path) -> SourceFile:
+def make_source(tmp_path: Path, rows: list[tuple[str, str]] | None = None) -> SourceFile:
     path = tmp_path / "科技.csv"
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["created_at_twitter", "text"])
         writer.writeheader()
-        writer.writerow({"created_at_twitter": "2024-01-01", "text": "第一条"})
-        writer.writerow({"created_at_twitter": "2024-01-02", "text": "第二条"})
+        for day, text in rows or [("2024-01-01", "第一条"), ("2024-01-02", "第二条")]:
+            writer.writerow({"created_at_twitter": day, "text": text})
     return SourceFile.create(tmp_path, path, "social")
 
 
@@ -28,4 +28,44 @@ def test_import_query_and_incremental_skip(tmp_path: Path):
     records = store.list_records(item.id, "第二", "2024-01-02", 0, 10)
     assert records["total"] == 1
     assert records["items"][0]["payload"]["text"] == "第二条"
+    store.close()
+
+
+def test_overview_rebuild_and_latest_pages(tmp_path: Path):
+    store = CatalogStore(tmp_path / "catalog.db")
+    item = make_source(tmp_path)
+    store.import_file(item)
+    expected = store.overview("social")
+    assert expected["records"] == 2
+    assert expected["start_date"] == "2024-01-01"
+    assert expected["end_date"] == "2024-01-02"
+    assert expected["granularity"] == "day"
+    assert expected["trend"] == [{"period": "2024-01-01", "count": 1}, {"period": "2024-01-02", "count": 1}]
+    assert expected["fields"] == [{"name": "created_at_twitter", "non_null_count": 2}, {"name": "text", "non_null_count": 2}]
+
+    first = store.list_records(None, None, None, 0, 1, "social")
+    second = store.list_records(None, None, None, 1, 1, "social")
+    assert first["total"] == 2
+    assert first["items"][0]["title"] == "第二条"
+    assert second["items"][0]["title"] == "第一条"
+
+    store.connection.execute("DELETE FROM source_daily_stats")
+    store.connection.execute("DELETE FROM source_fields")
+    assert store.rebuild_statistics() == {"sources": 1, "records": 2}
+    assert store.overview("social") == expected
+    store.close()
+
+
+def test_statistics_follow_changed_file_and_empty_source(tmp_path: Path):
+    store = CatalogStore(tmp_path / "catalog.db")
+    store.import_file(make_source(tmp_path))
+    changed = make_source(tmp_path, [("2024-01-01", "第一条"), ("2024-02-01", "第二条"), ("2024-05-01", "")])
+    store.import_file(changed)
+    overview = store.overview("social")
+    assert overview["records"] == 3
+    assert overview["granularity"] == "month"
+    assert sum(point["count"] for point in overview["trend"]) == 3
+    assert {field["name"]: field["non_null_count"] for field in overview["fields"]}["text"] == 2
+    assert store.overview("news")["records"] == 0
+    assert store.overview("news")["trend"] == []
     store.close()

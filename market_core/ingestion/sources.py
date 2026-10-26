@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -32,7 +33,13 @@ def _date(value: Any) -> str | None:
         return None
     if isinstance(value, (datetime, date)):
         return value.strftime("%Y-%m-%d")
-    return str(value)[:10]
+    match = re.match(r"^\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\D|$)", str(value))
+    if not match:
+        return None
+    try:
+        return date(*(int(part) for part in match.groups())).isoformat()
+    except ValueError:
+        return None
 
 
 def _row_payload(headers: list[str], row: tuple[Any, ...]) -> dict[str, Any]:

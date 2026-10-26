@@ -53,14 +53,26 @@ class MarketService:
             raise RuntimeError("状态模型尚未初始化")
         return self.states[-1]
 
+    def home_summary(self) -> dict[str, Any]:
+        return {
+            "latest": self.latest_state(),
+            "alert_count": len(self.alerts),
+            "loaded_assets": len(self.series),
+            "total_rows": self.quality.get("total_rows", 0),
+            "state_count": len(self.states),
+        }
+
     def source_summary(self) -> dict[str, Any]:
         return self.catalog.summary()
+
+    def source_overview(self, kind: str | None) -> dict[str, Any]:
+        return self.catalog.overview(kind)
 
     def source_files(self, kind: str | None, query: str | None, offset: int, limit: int) -> dict[str, Any]:
         return self.catalog.list_files(kind, query, offset, limit)
 
-    def source_records(self, source_id: str, query: str | None, date: str | None, offset: int, limit: int) -> dict[str, Any]:
-        return self.catalog.list_records(source_id, query, date, offset, limit)
+    def source_records(self, source_id: str | None, query: str | None, date: str | None, offset: int, limit: int, kind: str | None = None) -> dict[str, Any]:
+        return self.catalog.list_records(source_id, query, date, offset, limit, kind)
 
     def close(self) -> None:
         self.store.close()

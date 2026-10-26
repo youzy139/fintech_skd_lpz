@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import Counter
+from datetime import date as calendar_date
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -15,6 +17,9 @@ class CatalogStore:
         self.connection = sqlite3.connect(path, check_same_thread=False, timeout=60)
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA synchronous=NORMAL")
+        record_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(source_records)")}
+        if record_columns and "kind" not in record_columns:
+            self.connection.execute("ALTER TABLE source_records ADD COLUMN kind TEXT")
         self.connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS source_files (
@@ -25,12 +30,24 @@ class CatalogStore:
             );
             CREATE TABLE IF NOT EXISTS source_records (
                 source_id TEXT NOT NULL, record_index INTEGER NOT NULL,
-                event_date TEXT, title TEXT NOT NULL, payload_json TEXT NOT NULL,
+                event_date TEXT, title TEXT NOT NULL, payload_json TEXT NOT NULL, kind TEXT,
                 PRIMARY KEY (source_id, record_index)
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS idx_records_date ON source_records(event_date);
+            CREATE INDEX IF NOT EXISTS idx_records_date_source ON source_records(event_date DESC, source_id, record_index DESC);
+            CREATE INDEX IF NOT EXISTS idx_records_kind_date ON source_records(kind, event_date DESC, source_id, record_index DESC);
             CREATE INDEX IF NOT EXISTS idx_records_title ON source_records(title);
+            CREATE INDEX IF NOT EXISTS idx_records_source_date ON source_records(source_id, event_date DESC, record_index DESC);
+            CREATE INDEX IF NOT EXISTS idx_records_source_title ON source_records(source_id, title);
             CREATE INDEX IF NOT EXISTS idx_files_kind ON source_files(kind);
+            CREATE TABLE IF NOT EXISTS source_daily_stats (
+                source_id TEXT NOT NULL, event_date TEXT NOT NULL, record_count INTEGER NOT NULL,
+                PRIMARY KEY (source_id, event_date)
+            ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS source_fields (
+                source_id TEXT NOT NULL, name TEXT NOT NULL, field_position INTEGER NOT NULL,
+                non_null_count INTEGER NOT NULL, PRIMARY KEY (source_id, name)
+            ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS import_batches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, source_id TEXT NOT NULL,
                 status TEXT NOT NULL, record_count INTEGER NOT NULL DEFAULT 0,
@@ -39,6 +56,8 @@ class CatalogStore:
             );
             """
         )
+        self.connection.execute("UPDATE source_records SET kind=(SELECT kind FROM source_files WHERE id=source_id) WHERE kind IS NULL")
+        self.connection.commit()
 
     def is_unchanged(self, source: SourceFile) -> bool:
         row = self.connection.execute("SELECT 1 FROM source_files WHERE id = ? AND size = ? AND mtime_ns = ? AND status = 'imported'", (source.id, source.size, source.mtime_ns)).fetchone()
@@ -52,12 +71,18 @@ class CatalogStore:
             (source.id, source.kind, source.path, source.size, source.mtime_ns),
         )
         self.connection.execute("DELETE FROM source_records WHERE source_id = ?", (source.id,))
+        self.connection.execute("DELETE FROM source_daily_stats WHERE source_id = ?", (source.id,))
+        self.connection.execute("DELETE FROM source_fields WHERE source_id = ?", (source.id,))
         self.connection.commit()
         count = 0
+        daily: Counter[str] = Counter()
+        fields: Counter[str] = Counter()
+        positions: dict[str, int] = {}
         try:
             batch: list[tuple] = []
             for record in iter_records(source):
-                batch.append(self._record_tuple(record))
+                batch.append(self._record_tuple(record, source.kind))
+                self._accumulate_statistics(record, daily, fields, positions)
                 if len(batch) >= batch_size:
                     self._write_batch(batch)
                     count += len(batch)
@@ -66,6 +91,7 @@ class CatalogStore:
                 self._write_batch(batch)
                 count += len(batch)
             sheets = source_sheets(source)
+            self._write_statistics(source.id, daily, fields, positions)
             self.connection.execute("UPDATE source_files SET status='imported', record_count=?, error_count=0, sheets_json=?, error=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?", (count, json.dumps(sheets), source.id))
             self.connection.execute("UPDATE import_batches SET status='completed', record_count=?, completed_at=CURRENT_TIMESTAMP WHERE id=?", (count, batch_id))
             self.connection.commit()
@@ -77,17 +103,98 @@ class CatalogStore:
             raise
 
     @staticmethod
-    def _record_tuple(record: SourceRecord) -> tuple:
-        return (record.source_id, record.record_index, record.event_date, record.title, json.dumps(record.payload, ensure_ascii=False, default=str))
+    def _record_tuple(record: SourceRecord, kind: str) -> tuple:
+        return (record.source_id, record.record_index, record.event_date, record.title, json.dumps(record.payload, ensure_ascii=False, default=str), kind)
 
     def _write_batch(self, batch: Iterable[tuple]) -> None:
-        self.connection.executemany("INSERT INTO source_records (source_id, record_index, event_date, title, payload_json) VALUES (?, ?, ?, ?, ?)", batch)
+        self.connection.executemany("INSERT INTO source_records (source_id, record_index, event_date, title, payload_json, kind) VALUES (?, ?, ?, ?, ?, ?)", batch)
         self.connection.commit()
+
+    @staticmethod
+    def _accumulate_statistics(record: SourceRecord, daily: Counter[str], fields: Counter[str], positions: dict[str, int]) -> None:
+        if record.event_date:
+            daily[record.event_date] += 1
+        for name, value in record.payload.items():
+            positions.setdefault(name, len(positions))
+            if value is not None and value != "":
+                fields[name] += 1
+
+    def _write_statistics(self, source_id: str, daily: Counter[str], fields: Counter[str], positions: dict[str, int]) -> None:
+        self.connection.executemany(
+            "INSERT INTO source_daily_stats (source_id, event_date, record_count) VALUES (?, ?, ?)",
+            [(source_id, day, count) for day, count in daily.items()],
+        )
+        self.connection.executemany(
+            "INSERT INTO source_fields (source_id, name, field_position, non_null_count) VALUES (?, ?, ?, ?)",
+            [(source_id, name, positions[name], count) for name, count in fields.items()],
+        )
+
+    def rebuild_statistics(self) -> dict[str, int]:
+        self.connection.execute("DELETE FROM source_daily_stats")
+        self.connection.execute("DELETE FROM source_fields")
+        self.connection.commit()
+        cursor = self.connection.execute("SELECT source_id, record_index, event_date, title, payload_json FROM source_records ORDER BY source_id, record_index")
+        current_id: str | None = None
+        daily: Counter[str] = Counter()
+        fields: Counter[str] = Counter()
+        positions: dict[str, int] = {}
+        sources = 0
+        rows = 0
+        while True:
+            batch = cursor.fetchmany(1000)
+            if not batch:
+                break
+            for source_id, record_index, event_date, title, payload_json in batch:
+                if current_id is not None and source_id != current_id:
+                    self._write_statistics(current_id, daily, fields, positions)
+                    self.connection.commit()
+                    sources += 1
+                    daily, fields, positions = Counter(), Counter(), {}
+                current_id = source_id
+                record = SourceRecord(source_id, record_index, event_date, title, json.loads(payload_json))
+                self._accumulate_statistics(record, daily, fields, positions)
+                rows += 1
+        if current_id is not None:
+            self._write_statistics(current_id, daily, fields, positions)
+            sources += 1
+        self.connection.commit()
+        return {"sources": sources, "records": rows}
 
     def summary(self) -> dict[str, Any]:
         row = self.connection.execute("SELECT COUNT(*), COALESCE(SUM(status='imported'),0), COALESCE(SUM(record_count),0), COALESCE(SUM(error_count),0) FROM source_files").fetchone()
         groups = self.connection.execute("SELECT kind, COUNT(*), COALESCE(SUM(record_count),0) FROM source_files GROUP BY kind ORDER BY kind").fetchall()
         return {"total_files": row[0], "imported_files": row[1], "total_records": row[2], "errors": row[3], "groups": [{"kind": item[0], "files": item[1], "records": item[2]} for item in groups]}
+
+    def overview(self, kind: str | None) -> dict[str, Any]:
+        where = "WHERE kind = ?" if kind else ""
+        join_where = "WHERE f.kind = ?" if kind else ""
+        params = (kind,) if kind else ()
+        totals = self.connection.execute(f"SELECT COUNT(*), COALESCE(SUM(record_count),0) FROM source_files {where}", params).fetchone()
+        dates = self.connection.execute(f"SELECT MIN(d.event_date), MAX(d.event_date), COALESCE(SUM(d.record_count),0) FROM source_daily_stats d JOIN source_files f ON f.id=d.source_id {join_where}", params).fetchone()
+        start, end, dated_records = dates
+        granularity = "day"
+        if start and end:
+            try:
+                span = (calendar_date.fromisoformat(end) - calendar_date.fromisoformat(start)).days
+                granularity = "month" if span > 120 else "day"
+                if span > 3650:
+                    granularity = "year"
+            except ValueError:
+                granularity = "month"
+        expression = {"day": "d.event_date", "month": "substr(d.event_date,1,7)", "year": "substr(d.event_date,1,4)"}[granularity]
+        trend = self.connection.execute(f"SELECT {expression}, SUM(d.record_count) FROM source_daily_stats d JOIN source_files f ON f.id=d.source_id {join_where} GROUP BY {expression} ORDER BY {expression}", params).fetchall()
+        fields = self.connection.execute(f"SELECT d.name, MIN(d.field_position), SUM(d.non_null_count) FROM source_fields d JOIN source_files f ON f.id=d.source_id {join_where} GROUP BY d.name ORDER BY MIN(d.field_position), d.name LIMIT 100", params).fetchall()
+        return {
+            "kind": kind,
+            "files": totals[0],
+            "records": totals[1],
+            "start_date": start,
+            "end_date": end,
+            "undated_records": totals[1] - dated_records,
+            "granularity": granularity,
+            "trend": [{"period": period, "count": count} for period, count in trend],
+            "fields": [{"name": name, "non_null_count": count} for name, _, count in fields],
+        }
 
     def list_files(self, kind: str | None, query: str | None, offset: int, limit: int) -> dict[str, Any]:
         conditions: list[str] = []
@@ -107,19 +214,40 @@ class CatalogStore:
     def _file_dict(row: tuple) -> dict[str, Any]:
         return {"id": row[0], "kind": row[1], "path": row[2], "status": row[3], "record_count": row[4], "error_count": row[5], "sheets": json.loads(row[6]), "error": row[7], "size": row[8], "mtime_ns": row[9]}
 
-    def list_records(self, source_id: str, query: str | None, date: str | None, offset: int, limit: int) -> dict[str, Any]:
-        conditions = ["source_id = ?"]
-        params: list[Any] = [source_id]
+    def list_records(self, source_id: str | None, query: str | None, date: str | None, offset: int, limit: int, kind: str | None = None) -> dict[str, Any]:
+        conditions: list[str] = []
+        params: list[Any] = []
+        if source_id:
+            conditions.append("r.source_id = ?")
+            params.append(source_id)
+        if kind:
+            conditions.append("r.kind = ?")
+            params.append(kind)
         if query:
-            conditions.append("title LIKE ?")
+            conditions.append("r.title LIKE ?")
             params.append(f"%{query}%")
         if date:
-            conditions.append("event_date = ?")
+            conditions.append("r.event_date = ?")
             params.append(date)
-        where = " AND ".join(conditions)
-        total = self.connection.execute(f"SELECT COUNT(*) FROM source_records WHERE {where}", params).fetchone()[0]
-        rows = self.connection.execute(f"SELECT record_index, event_date, title, payload_json FROM source_records WHERE {where} ORDER BY record_index LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
-        return {"total": total, "offset": offset, "limit": limit, "items": [{"record_index": row[0], "event_date": row[1], "title": row[2], "payload": json.loads(row[3])} for row in rows]}
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        if not query and not date:
+            count_conditions: list[str] = []
+            count_params: list[Any] = []
+            if source_id:
+                count_conditions.append("id = ?")
+                count_params.append(source_id)
+            if kind:
+                count_conditions.append("kind = ?")
+                count_params.append(kind)
+            count_where = f"WHERE {' AND '.join(count_conditions)}" if count_conditions else ""
+            total = self.connection.execute(f"SELECT COALESCE(SUM(record_count),0) FROM source_files {count_where}", count_params).fetchone()[0]
+        else:
+            total = self.connection.execute(f"SELECT COUNT(*) FROM source_records r JOIN source_files f ON f.id=r.source_id {where}", params).fetchone()[0]
+        rows = self.connection.execute(
+            f"SELECT r.source_id, f.path, f.kind, r.record_index, r.event_date, r.title, r.payload_json FROM source_records r JOIN source_files f ON f.id=r.source_id {where} ORDER BY r.event_date DESC, r.source_id, r.record_index DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        return {"total": total, "offset": offset, "limit": limit, "items": [{"source_id": row[0], "source_path": row[1], "kind": row[2], "record_index": row[3], "event_date": row[4], "title": row[5], "payload": json.loads(row[6])} for row in rows]}
 
     def close(self) -> None:
         self.connection.close()

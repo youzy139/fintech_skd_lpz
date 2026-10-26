@@ -6,11 +6,13 @@
 
 ## 当前状态
 
-当前为 `v0.2.0` 测试版本，已完成全量赛题数据接入与真实资产市场监控闭环：
+当前为 `v0.2.1` 测试版本，已完成全量赛题数据接入与真实资产市场监控闭环：
 
 - 1,046 个输入文件全部登记并导入本地 SQLite，共 1,556,492 条逻辑记录，首次全量导入无失败文件。
 - 39 个可用资产包含 314,318 条行情记录；新闻 900,704 条、科技 41,413 条、宏观日历 185,753 条、研究摘要 1,000 篇，指标工作簿 31 个 sheet 全部处理。
-- 数据中心支持类型统计、文件搜索、分页目录和原始记录安全预览，不把 HTML 注入页面。
+- 数据中心按类型提供时间覆盖、预聚合记录量趋势、字段目录和友好内容列表；原始文件与字段下沉到核对区，HTML 不会注入页面。
+- 概览统计随流式导入更新，旧数据库可从已入库记录回填；类型与文件明细均按日期倒序、服务端分页，每页默认 20 条，不把整库发送到浏览器。
+- 首页使用轻量摘要，市场页面与数据中心按需加载；展开原始文件目录时才请求文件分页。
 - 计算市场收益、20 日年化波动率、60 日动量、趋势和资产相关性。
 - 使用滚动训练窗口内的 StandardScaler、PCA 与 KMeans 逐日识别状态，训练数据严格早于识别日。
 - 生成高波动、相关性异常和状态切换预警，提供 REST、GraphQL、WebSocket 和 OpenAPI。
@@ -30,8 +32,11 @@ conda run -n fintech python -m pip install -r requirements-dev.txt
 # 可选：复制本地私有配置；config.json 与 server/data/ 不会进入 Git
 cp server/config.example.json server/config.json
 
-# 首次执行全量导入；后续运行会跳过未变化文件
+# 首次执行全量导入；后续运行会跳过未变化文件，概览统计随导入生成
 PYTHONPATH="C:/Users/15214/Desktop/project/fintech/server;C:/Users/15214/Desktop/project/fintech" PYTHONUTF8=1 C:/ProgramData/miniconda3/envs/fintech/python.exe -m app.services.import_data
+
+# 仅旧版数据库需要：从已入库记录回填概览统计，不重新导入原始文件
+PYTHONPATH=".;server" PYTHONUTF8=1 conda run -n fintech python -m app.services.import_data --rebuild-stats
 
 # 启动后端，首次初始化需要计算真实历史特征
 PYTHONPATH=. PYTHONUTF8=1 conda run -n fintech uvicorn app.main:app --app-dir server --host 127.0.0.1 --port 8000
@@ -86,7 +91,7 @@ cd web && npm test && npm run build
 
 ## 版本约定
 
-版本号采用 `v主版本.次版本.修订号` 的三段式格式，并通过 Git 标签标记版本。当前版本为 `v0.2.0`。本地提交与标签可以先完成，远程推送必须等待实际体验并明确确认。
+版本号采用 `v主版本.次版本.修订号` 的三段式格式，并通过 Git 标签标记版本。当前版本为 `v0.2.1`。本地提交与标签可以先完成，远程推送必须等待实际体验并明确确认。
 
 ### 测试版本：`v0.x`
 
