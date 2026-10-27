@@ -5,7 +5,7 @@ import App from './App'
 vi.mock('./Chart', () => ({ default: () => <div data-testid="chart" /> }))
 
 const latest = { date: '2026-04-30', label: '震荡平衡 · C1', confidence: 0.82, model_version: 'test', trained_through: '2026-04-29', features: { volatility: 0.2, momentum: 0.05, correlation: 0.3, sample_count: 30 }, contributions: [{ feature: 'volatility', value: 0.2, standardized: 1.2 }] }
-const socialRecord = { source_id: 'source', source_path: '科技.csv', kind: 'social', record_index: 0, event_date: '2024-01-02', title: '<b>原文</b>', payload: { created_at_twitter: '2024-01-02', text: '<b>原文</b>' } }
+const socialRecord = { source_id: 'source', source_path: '科技.csv', kind: 'social', record_index: 0, event_date: '2024-01-02', title: '<b>原文</b>', payload: { created_at_twitter: '2024-01-02', text: '<b>原文</b>' }, tags: ['人工智能'] }
 const responses: Record<string, unknown> = {
   '/api/home/summary': { latest, alert_count: 0, loaded_assets: 39, total_rows: 314318, state_count: 3340 },
   '/api/assets': [{ code: 'SPX.GI', name: '标普500', category: '全球权益', field: 'close', start: '1970-01-02', end: '2026-04-30', rows: 100 }],
@@ -16,8 +16,11 @@ const responses: Record<string, unknown> = {
   '/api/data/summary': { total_files: 1046, imported_files: 1046, total_records: 1556492, errors: 0, groups: [{ kind: 'social', files: 1, records: 42 }] },
   '/api/data/overview': { kind: null, files: 1046, records: 1556492, start_date: '1970-01-02', end_date: '2026-04-30', undated_records: 0, granularity: 'year', trend: [{ period: '2024', count: 2 }], fields: [{ name: 'text', non_null_count: 42 }] },
   '/api/data/overview?kind=social': { kind: 'social', files: 1, records: 42, start_date: '2024-01-01', end_date: '2024-01-02', undated_records: 0, granularity: 'day', trend: [{ period: '2024-01-02', count: 42 }], fields: [{ name: 'text', non_null_count: 42 }] },
+  '/api/data/tags': [{ tag: '人工智能', records: 1 }],
+  '/api/data/tags?kind=social': [{ tag: '人工智能', records: 1 }],
   '/api/data/records?offset=0&limit=20': { total: 1556492, offset: 0, limit: 20, items: [socialRecord] },
   '/api/data/records?offset=0&limit=20&kind=social': { total: 42, offset: 0, limit: 20, items: [socialRecord] },
+  '/api/data/records?offset=0&limit=20&tag=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&kind=social': { total: 1, offset: 0, limit: 20, items: [socialRecord] },
   '/api/data/records?offset=20&limit=20&kind=social': { total: 42, offset: 20, limit: 20, items: [{ ...socialRecord, record_index: 20, text: '第二页正文', payload: { text: '第二页正文' } }] },
   '/api/data/files?offset=0&limit=20&kind=social': { total: 1, offset: 0, limit: 20, items: [{ id: 'source', kind: 'social', path: '科技.csv', status: 'imported', record_count: 42, error_count: 0, sheets: [], size: 100 }] },
   '/api/data/files/source/records?offset=0&limit=20': { total: 42, offset: 0, limit: 20, items: [socialRecord] },
@@ -83,6 +86,20 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '只看此文件' }))
     await waitFor(() => expect(screen.getByText(/正在只看文件：科技.csv/)).toBeInTheDocument())
     expect(fetch).toHaveBeenCalledWith('/api/data/files/source/records?offset=0&limit=20', expect.anything())
+  })
+
+  it('filters records by a tag and clears the filter', async () => {
+    await openDataCenter()
+    fireEvent.click(screen.getByRole('button', { name: /社交媒体/ }))
+    const tag = await screen.findByRole('button', { name: /人工智能 1 条/ })
+    fireEvent.click(tag)
+    await waitFor(() => expect(screen.getByText(/当前标签：人工智能/)).toBeInTheDocument())
+    expect(fetch).toHaveBeenCalledWith('/api/data/records?offset=0&limit=20&tag=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&kind=social', expect.anything())
+    expect(tag).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByText('人工智能').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '清除标签筛选' }))
+    await waitFor(() => expect(screen.queryByText(/当前标签：人工智能/)).not.toBeInTheDocument())
+    expect(fetch).toHaveBeenCalledWith('/api/data/records?offset=0&limit=20&kind=social', expect.anything())
   })
 
   it('animates scrolling and finishes at exact scrollTop zero', () => {

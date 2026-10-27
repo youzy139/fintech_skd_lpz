@@ -2,7 +2,7 @@
 
 ## 项目概览
 
-本目录是 **2026 年上海科技大学第一届金融科技竞赛参赛项目**，产品名为 **MarketLens**，当前版本为 `v0.2.1` 测试版本。项目基于多资产行情、宏观指标、事件日历和舆情文本，建设市场状态（Market Regime）监控平台，覆盖数据接入、特征计算、状态识别、风险预警和可视化。
+本目录是 **2026 年上海科技大学第一届金融科技竞赛参赛项目**，产品名为 **MarketLens**，当前版本为 `v0.2.2` 测试版本。项目基于多资产行情、宏观指标、事件日历和舆情文本，建设市场状态（Market Regime）监控平台，覆盖数据接入、特征计算、状态识别、风险预警和可视化。
 
 当前已经实现的本地闭环：
 
@@ -44,7 +44,8 @@
 ├── market_core/                  # 独立领域与算法核心，不依赖 FastAPI、server 或 web
 │   ├── domain/
 │   │   ├── market.py            # 资产、数据质量和预警数据类
-│   │   └── sources.py           # 来源文件、来源记录和导入结果数据类
+│   │   ├── sources.py           # 来源文件、来源记录和导入结果数据类
+│   │   └── tags.py              # 确定性主题关键词与结构字段标签规则
 │   ├── ingestion/
 │   │   ├── assets.py            # 资产目录读取、行情校验、重复日期与非法行处理
 │   │   └── sources.py           # 固定数据源发现及 CSV、Excel、Markdown 流式适配
@@ -68,7 +69,7 @@
 ├── web/
 │   ├── src/App.tsx              # 工作台外壳及首页/市场/数据中心按需加载
 │   ├── src/Landing.tsx          # 产品首页与轻量摘要
-│   ├── src/SourceCatalog.tsx    # 数据概览、友好内容、分页和原始核对
+│   ├── src/SourceCatalog.tsx    # 数据概览、标签筛选、友好内容、分页和原始核对
 │   ├── src/Chart.tsx            # 按需注册 ECharts 的图表包装组件
 │   ├── src/api.ts               # fetch 封装
 │   ├── src/types.ts             # API 数据类型
@@ -85,7 +86,7 @@
 ## 当前运行架构与数据流
 
 1. `python -m app.services.import_data` 按固定清单发现资产 CSV、4 个 Excel 工作簿、科技帖子 CSV、新闻 CSV 和研究摘要 Markdown。
-2. `CatalogStore` 将文件元数据写入 `source_files`，将每条原始记录以 JSON 写入 `source_records`，同步累计 `source_daily_stats` 和 `source_fields`，并在 `import_batches` 记录批次。默认每 1,000 条逻辑记录提交一次；Excel 使用只读模式。文件大小、修改时间和成功状态均未变化时跳过重导。记录冗余保存 `kind`，配合 `(kind, event_date, source_id, record_index)` 索引避免大表全排序；旧库打开时自动补充该字段和索引。
+2. `CatalogStore` 将文件元数据写入 `source_files`，将每条原始记录以 JSON 写入 `source_records`，同步累计 `source_daily_stats`、`source_fields`、`source_record_tags` 和 `source_tag_stats`，并在 `import_batches` 记录批次。默认每 1,000 条逻辑记录提交一次；Excel 使用只读模式。文件大小、修改时间和成功状态均未变化时跳过重导。记录冗余保存 `kind`，配合日期与标签索引避免大表全排序；旧库打开时自动补充字段和索引，`--rebuild-stats` 同时重建统计与标签。标签由 `market_core/domain/tags.py` 的确定性关键词和结构字段生成，仅用于检索，不表示情绪或投资判断。标签关联表冗余保存事件日期，筛选时直接复用标签计数与日期索引；本地共享 SQLite 连接通过可重入锁串行访问，避免并发请求互相干扰游标。
 3. `MarketService.initialize()` 在后端启动时重新读取原始资产文件，计算全部历史特征、状态和预警；结果保存在内存中供接口查询，同时写入 SQLite 的 `snapshots` 表。
 4. `SnapshotStore` 当前只提供保存和关闭方法，没有快照读取或启动恢复逻辑；不能把快照描述成已经生效的模型缓存。
 5. 首页只请求轻量摘要；市场页面进入工作台后加载市场数据，数据中心独立请求预聚合概览和当前页记录，文件目录只在展开时加载。GraphQL 与 WebSocket 已在后端提供，但当前页面没有使用它们。
@@ -103,7 +104,7 @@
 
 ### 对外接口
 
-- REST：`/api/health`、`/api/home/summary`、`/api/assets`、`/api/assets/{code}/series`、`/api/regimes/latest`、`/api/regimes`、`/api/features/latest`、`/api/alerts`、`/api/data/quality`、`/api/data/summary`、`/api/data/overview`、`/api/data/records`、`/api/data/files`、`/api/data/files/{source_id}/records`。
+- REST：`/api/health`、`/api/home/summary`、`/api/assets`、`/api/assets/{code}/series`、`/api/regimes/latest`、`/api/regimes`、`/api/features/latest`、`/api/alerts`、`/api/data/quality`、`/api/data/summary`、`/api/data/overview`、`/api/data/tags`、`/api/data/records`、`/api/data/files`、`/api/data/files/{source_id}/records`。
 - GraphQL：`/graphql`，当前查询字段只有 `assets`、`latestState`、`sourceSummary`。
 - WebSocket：`/ws/replay`，按历史状态发送消息并携带事件时间与回放时间；单次最多 100 条状态消息。这不是 Kafka/Flink 实时流。
 - OpenAPI：FastAPI 自动提供 `/docs`。
@@ -185,11 +186,11 @@ npm run build
 
 当前测试基线：
 
-- 后端 16 项测试通过，覆盖多行新闻 CSV、社媒日期规范化、全部指标 sheet、研究摘要元数据、资产重复/非法数据、字段校验、增量导入、统计回填、概览与分页、walk-forward 防未来泄漏、预警证据、REST、GraphQL 和 WebSocket。
-- 后端当前总体分支覆盖率为 79.56%，高于 30% 的竞赛门槛；`import_data.py` 的命令行主流程仍未被自动化测试覆盖。
-- 前端 4 项测试通过，覆盖轻量首页、工作台导航、数据中心独立加载、类型切换、服务端翻页、文件按需目录、安全文本和精确回到顶部。
+- 后端 20 项测试通过，覆盖多行新闻 CSV、社媒日期规范化、全部指标 sheet、研究摘要元数据、资产重复/非法数据、字段校验、增量导入、统计与标签回填、标签词边界和组合筛选、90 次并发目录查询、概览与分页、walk-forward 防未来泄漏、预警证据、REST、GraphQL 和 WebSocket。
+- 后端当前总体分支覆盖率为 81.82%，高于 30% 的竞赛门槛；`import_data.py` 的命令行主流程仍未被自动化测试覆盖。
+- 前端 5 项测试通过，覆盖轻量首页、工作台导航、数据中心独立加载、类型切换、标签筛选与清除、服务端翻页、文件按需目录、安全文本和精确回到顶部。
 - 后端接口测试使用 fake service，前端测试 mock `fetch` 和图表；这些测试本身不是原始数据到页面的完整端到端验收。
-- 已对真实 1,556,492 条记录回填统计，验证八类数据概览与每页 20 条查询；新闻分页从约 3.8 秒优化到约 14 毫秒，并通过真实 Chrome 检查首页、工作台、数据中心、社媒内容与日期显示。
+- 已对真实 1,556,492 条记录回填统计和标签，验证八类数据概览、标签目录与每页 20 条查询；新闻普通分页约 14 毫秒，新闻“人工智能”标签筛选从约 1.46 秒优化到约 17 毫秒。真实 Chrome 已检查首页、工作台、数据中心、日期、标签筛选、记录标签和清除筛选。
 - 当前没有 CI 工作流、可持续运行的浏览器端 E2E 测试套件、容器部署验收、性能压测报告或前端覆盖率统计。
 
 修改解析、模型或接口时，应增加与行为对应的测试；不要只验证模块可导入。完整链路、真实页面、部署和性能仍需单独验证。

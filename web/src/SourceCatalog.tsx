@@ -5,7 +5,8 @@ import { api } from './api'
 type Summary = { total_files: number; imported_files: number; total_records: number; errors: number; groups: { kind: string; files: number; records: number }[] }
 type Overview = { kind: string | null; files: number; records: number; start_date: string | null; end_date: string | null; undated_records: number; granularity: 'day' | 'month' | 'year'; trend: { period: string; count: number }[]; fields: { name: string; non_null_count: number }[] }
 type SourceFile = { id: string; kind: string; path: string; status: string; record_count: number; error_count: number; sheets: string[]; error?: string; size: number }
-type SourceRecord = { source_id: string; source_path: string; kind: string; record_index: number; event_date: string | null; title: string; payload: Record<string, unknown> }
+type SourceRecord = { source_id: string; source_path: string; kind: string; record_index: number; event_date: string | null; title: string; payload: Record<string, unknown>; tags: string[] }
+type TagItem = { tag: string; records: number }
 type Page<T> = { total: number; offset: number; limit: number; items: T[] }
 
 const kindNames: Record<string, string> = { asset: '资产行情', calendar: '宏观日历', commodity: '商品成交', indicator: '脱敏指标', news: '新闻', publication: '公众号', research: '研究摘要', social: '社交媒体' }
@@ -83,6 +84,7 @@ function RecordCard({ record }: { record: SourceRecord }) {
   return <article className="content-record">
     <header><div><span className="record-kind">{kindNames[record.kind] ?? record.kind}</span><h3>{title || '未命名记录'}</h3></div><time>{record.event_date ?? '无日期'}</time></header>
     <small className="record-source" title={record.source_path}>{record.source_path}</small>
+    {record.tags.length > 0 && <div className="record-tags">{record.tags.map(tag => <span key={tag}>{tag}</span>)}</div>}
     {text && <p className="record-summary">{expanded ? text : shortText}</p>}
     {text.length > 320 && <button className="text-button" onClick={() => setExpanded(!expanded)}>{expanded ? '收起正文' : '展开正文'}</button>}
     {fields.length > 0 && <dl className="record-inline">{fields.map(([name, value]) => <div key={name}><dt>{fieldName(name)}</dt><dd>{fieldValue(value)}</dd></div>)}</dl>}
@@ -96,6 +98,8 @@ export default function SourceCatalog() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [files, setFiles] = useState<Page<SourceFile> | null>(null)
   const [records, setRecords] = useState<Page<SourceRecord> | null>(null)
+  const [tags, setTags] = useState<TagItem[]>([])
+  const [selectedTag, setSelectedTag] = useState('')
   const [kind, setKind] = useState('')
   const [selectedFile, setSelectedFile] = useState<SourceFile | null>(null)
   const [fileInput, setFileInput] = useState('')
@@ -125,6 +129,14 @@ export default function SourceCatalog() {
   }, [kind])
 
   useEffect(() => {
+    const controller = new AbortController()
+    setTags([])
+    const params = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+    api<TagItem[]>(`/api/data/tags${params}`, controller.signal).then(setTags).catch(reason => { if (!isAbort(reason)) setError(reason.message) })
+    return () => controller.abort()
+  }, [kind])
+
+  useEffect(() => {
     if (!rawOpen) return
     const controller = new AbortController()
     const params = new URLSearchParams({ offset: String(fileOffset), limit: String(limit) })
@@ -140,11 +152,12 @@ export default function SourceCatalog() {
     const params = new URLSearchParams({ offset: String(recordOffset), limit: String(limit) })
     if (recordQuery) params.set('query', recordQuery)
     if (dateQuery) params.set('date', dateQuery)
+    if (selectedTag) params.set('tag', selectedTag)
     const endpoint = selectedFile ? `/api/data/files/${selectedFile.id}/records` : '/api/data/records'
     if (!selectedFile && kind) params.set('kind', kind)
     api<Page<SourceRecord>>(`${endpoint}?${params}`, controller.signal).then(setRecords).catch(reason => { if (!isAbort(reason)) setError(reason.message) })
     return () => controller.abort()
-  }, [kind, selectedFile, recordQuery, dateQuery, recordOffset])
+  }, [kind, selectedFile, recordQuery, dateQuery, selectedTag, recordOffset])
 
   const trendOption = useMemo(() => ({
     grid: { left: 60, right: 22, top: 24, bottom: 42 },
@@ -155,9 +168,10 @@ export default function SourceCatalog() {
   }), [overview])
 
   const selectKind = (next: string) => {
-    setKind(next); setSelectedFile(null); setFileOffset(0); setRecordOffset(0)
+    setKind(next); setSelectedFile(null); setSelectedTag(''); setFileOffset(0); setRecordOffset(0)
     setRecordInput(''); setRecordQuery(''); setDateInput(''); setDateQuery(''); setFileQuery(''); setFileInput('')
   }
+  const selectTag = (tag: string) => { setSelectedTag(current => current === tag ? '' : tag); setRecordOffset(0) }
   const searchRecords = (event: FormEvent) => { event.preventDefault(); setRecordOffset(0); setRecordQuery(recordInput); setDateQuery(dateInput) }
   const searchFiles = (event: FormEvent) => { event.preventDefault(); setFileOffset(0); setFileQuery(fileInput) }
   const dateRange = overview?.start_date ? `${overview.start_date} 至 ${overview.end_date}` : '暂无有日期的记录'
@@ -187,9 +201,12 @@ export default function SourceCatalog() {
       {overview && <details className="field-catalog"><summary>查看字段目录（{overview.fields.length}）</summary><div>{overview.fields.map(field => <span key={field.name}><b>{fieldName(field.name)}</b><small>{field.non_null_count.toLocaleString()} 条非空</small></span>)}</div></details>}
     </section>
 
+    {tags.length > 0 && <section className="panel tag-panel"><div className="panel-head"><div><h2>标签筛选</h2><p>标签来自确定性关键词与已有字段，仅用于检索，不代表情绪或投资判断</p></div>{selectedTag && <button className="clear-tag" onClick={() => { setSelectedTag(''); setRecordOffset(0) }}>清除标签</button>}</div><div className="tag-filters">{tags.map(item => <button key={item.tag} className={selectedTag === item.tag ? 'active' : ''} aria-pressed={selectedTag === item.tag} onClick={() => selectTag(item.tag)}><b>{item.tag}</b><span>{item.records.toLocaleString()} 条</span></button>)}</div></section>}
+
     <section className="panel">
       <div className="panel-head"><div><h2>最新内容</h2><p>{activeName} · 共 {records?.total.toLocaleString() ?? '—'} 条匹配记录，每页 20 条</p></div><form className="record-search" onSubmit={searchRecords}><input value={recordInput} onChange={event => setRecordInput(event.target.value)} placeholder="搜索标题" /><input type="date" value={dateInput} onChange={event => setDateInput(event.target.value)} aria-label="按日期筛选" /><button type="submit">筛选</button></form></div>
       {selectedFile && <div className="active-filter">正在只看文件：{selectedFile.path}<button onClick={() => { setSelectedFile(null); setRecordOffset(0) }}>清除文件筛选</button></div>}
+      {selectedTag && <div className="active-filter">当前标签：{selectedTag}<button onClick={() => { setSelectedTag(''); setRecordOffset(0) }}>清除标签筛选</button></div>}
       {!records ? <div className="empty">正在读取当前页…</div> : records.items.length === 0 ? <div className="empty">当前筛选条件下暂无记录</div> : <div className="content-records">{records.items.map(record => <RecordCard key={`${record.source_id}-${record.record_index}`} record={record} />)}</div>}
       {records && <div className="pagination"><span>第 {Math.floor(recordOffset / limit) + 1} / {Math.max(1, Math.ceil(records.total / limit))} 页</span><div><button aria-label="上一页记录" disabled={recordOffset === 0} onClick={() => setRecordOffset(Math.max(0, recordOffset - limit))}>上一页</button><button aria-label="下一页记录" disabled={recordOffset + limit >= records.total} onClick={() => setRecordOffset(recordOffset + limit)}>下一页</button></div></div>}
     </section>

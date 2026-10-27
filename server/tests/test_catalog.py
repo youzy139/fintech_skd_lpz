@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app.services.catalog import CatalogStore
@@ -68,4 +69,41 @@ def test_statistics_follow_changed_file_and_empty_source(tmp_path: Path):
     assert {field["name"]: field["non_null_count"] for field in overview["fields"]}["text"] == 2
     assert store.overview("news")["records"] == 0
     assert store.overview("news")["trend"] == []
+    store.close()
+
+
+def test_tag_counts_filtering_and_rebuild(tmp_path: Path):
+    store = CatalogStore(tmp_path / "catalog.db")
+    item = make_source(tmp_path, [("2024-01-01", "AI 与半导体"), ("2024-01-02", "通胀与加息"), ("2024-01-03", "普通文本")])
+    store.import_file(item)
+    counts = {entry["tag"]: entry["records"] for entry in store.list_tags("social")}
+    assert counts["人工智能"] == 1
+    assert counts["半导体"] == 1
+    assert counts["通胀"] == 1
+    filtered = store.list_records(None, None, "2024-01-01", 0, 20, "social", "人工智能")
+    assert filtered["total"] == 1
+    assert filtered["items"][0]["title"] == "AI 与半导体"
+    assert "人工智能" in filtered["items"][0]["tags"]
+    assert store.list_records(None, None, None, 0, 20, "social", "不存在的标签")["total"] == 0
+    assert store.rebuild_statistics() == {"sources": 1, "records": 3}
+    assert {entry["tag"]: entry["records"] for entry in store.list_tags("social")} == counts
+    assert store.list_records(item.id, None, None, 0, 20, tag="人工智能")["total"] == 1
+    store.close()
+
+
+def test_concurrent_catalog_queries_share_connection_safely(tmp_path: Path):
+    store = CatalogStore(tmp_path / "catalog.db")
+    store.import_file(make_source(tmp_path, [("2024-01-01", "AI"), ("2024-01-02", "半导体")]))
+
+    def read(index: int):
+        if index % 3 == 0:
+            assert store.summary()["total_records"] == 2
+        elif index % 3 == 1:
+            assert store.list_tags("social")
+        else:
+            assert store.overview("social")["records"] == 2
+            assert store.list_records(None, None, None, 0, 20, "social")["total"] == 2
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        list(executor.map(read, range(90)))
     store.close()

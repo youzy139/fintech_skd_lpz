@@ -23,8 +23,9 @@ def fake_service():
         home_summary=lambda: {"latest": state, "alert_count": 1, "loaded_assets": 1, "total_rows": 2, "state_count": 1},
         source_summary=lambda: {"total_files": 1, "imported_files": 1, "total_records": 2, "errors": 0, "groups": []},
         source_overview=lambda kind: {"kind": kind, "files": 1, "records": 2, "start_date": "2024-01-01", "end_date": "2024-01-02", "undated_records": 0, "granularity": "day", "trend": [{"period": "2024-01-02", "count": 2}], "fields": []},
+        source_tags=lambda kind: [{"tag": "人工智能", "records": 1}],
         source_files=lambda kind, query, offset, limit: {"total": 1, "items": [{"id": "source", "path": "科技.csv", "status": "imported", "record_count": 2}]},
-        source_records=lambda source_id, query, date, offset, limit, kind=None: {"total": 1, "offset": offset, "limit": limit, "items": [{"source_id": "source", "source_path": "科技.csv", "kind": "social", "record_index": 0, "event_date": "2024-01-02", "title": "测试记录", "payload": {"text": "<b>原文</b>"}}]},
+        source_records=lambda source_id, query, date, offset, limit, kind=None, tag=None: {"total": 1, "offset": offset, "limit": limit, "items": [{"source_id": "source", "source_path": "科技.csv", "kind": "social", "record_index": 0, "event_date": "2024-01-02", "title": "测试记录", "payload": {"text": "<b>原文</b>"}, "tags": ["人工智能"]}]},
     )
 
 
@@ -75,6 +76,7 @@ def test_source_catalog_and_graphql_summary():
     with client() as http:
         assert http.get("/api/data/summary").json()["total_records"] == 2
         assert http.get("/api/data/overview?kind=social").json()["trend"][0]["count"] == 2
+        assert http.get("/api/data/tags?kind=social").json()[0]["tag"] == "人工智能"
         assert http.get("/api/data/files?kind=social").json()["items"][0]["path"] == "科技.csv"
         assert http.get("/api/data/files/source/records").json()["items"][0]["payload"]["text"] == "<b>原文</b>"
         page = http.get("/api/data/records?kind=social&offset=0&limit=20")
