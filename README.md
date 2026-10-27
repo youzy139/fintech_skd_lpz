@@ -76,6 +76,7 @@ cd web && npm test && npm run build
 ## 文档
 
 - [总体架构设计](docs/architecture.md)：项目架构基线与模块职责。
+- [v0.3.x 阶段计划](docs/v0.3.x-plan.md)：真实历史回放、Kafka/Flink、分布式存储的实施顺序与验收标准。
 - [AGENTS.md](AGENTS.md)：数据口径、竞赛约束和开发注意事项。
 - 根目录的赛题 PDF 与发布 PPT：正式竞赛要求及评分依据。
 
