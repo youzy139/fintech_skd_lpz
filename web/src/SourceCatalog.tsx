@@ -99,7 +99,9 @@ export default function SourceCatalog() {
   const [files, setFiles] = useState<Page<SourceFile> | null>(null)
   const [records, setRecords] = useState<Page<SourceRecord> | null>(null)
   const [tags, setTags] = useState<TagItem[]>([])
-  const [selectedTag, setSelectedTag] = useState('')
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [matchMode, setMatchMode] = useState<'any' | 'all'>('any')
+  const [tagNotice, setTagNotice] = useState('')
   const [kind, setKind] = useState('')
   const [selectedFile, setSelectedFile] = useState<SourceFile | null>(null)
   const [fileInput, setFileInput] = useState('')
@@ -152,12 +154,13 @@ export default function SourceCatalog() {
     const params = new URLSearchParams({ offset: String(recordOffset), limit: String(limit) })
     if (recordQuery) params.set('query', recordQuery)
     if (dateQuery) params.set('date', dateQuery)
-    if (selectedTag) params.set('tag', selectedTag)
+    selectedTags.forEach(tag => params.append('tags', tag))
+    if (selectedTags.length) params.set('match', matchMode)
     const endpoint = selectedFile ? `/api/data/files/${selectedFile.id}/records` : '/api/data/records'
     if (!selectedFile && kind) params.set('kind', kind)
     api<Page<SourceRecord>>(`${endpoint}?${params}`, controller.signal).then(setRecords).catch(reason => { if (!isAbort(reason)) setError(reason.message) })
     return () => controller.abort()
-  }, [kind, selectedFile, recordQuery, dateQuery, selectedTag, recordOffset])
+  }, [kind, selectedFile, recordQuery, dateQuery, selectedTags, matchMode, recordOffset])
 
   const trendOption = useMemo(() => ({
     grid: { left: 60, right: 22, top: 24, bottom: 42 },
@@ -168,10 +171,16 @@ export default function SourceCatalog() {
   }), [overview])
 
   const selectKind = (next: string) => {
-    setKind(next); setSelectedFile(null); setSelectedTag(''); setFileOffset(0); setRecordOffset(0)
+    setKind(next); setSelectedFile(null); setSelectedTags([]); setTagNotice(''); setFileOffset(0); setRecordOffset(0)
     setRecordInput(''); setRecordQuery(''); setDateInput(''); setDateQuery(''); setFileQuery(''); setFileInput('')
   }
-  const selectTag = (tag: string) => { setSelectedTag(current => current === tag ? '' : tag); setRecordOffset(0) }
+  const clearTags = () => { setSelectedTags([]); setTagNotice(''); setRecordOffset(0) }
+  const selectTag = (tag: string) => {
+    setRecordOffset(0); setTagNotice('')
+    if (selectedTags.includes(tag)) { setSelectedTags(selectedTags.filter(item => item !== tag)); return }
+    if (selectedTags.length >= 5) { setTagNotice('最多同时选择 5 个标签，请先取消一个已选标签'); return }
+    setSelectedTags([...selectedTags, tag])
+  }
   const searchRecords = (event: FormEvent) => { event.preventDefault(); setRecordOffset(0); setRecordQuery(recordInput); setDateQuery(dateInput) }
   const searchFiles = (event: FormEvent) => { event.preventDefault(); setFileOffset(0); setFileQuery(fileInput) }
   const dateRange = overview?.start_date ? `${overview.start_date} 至 ${overview.end_date}` : '暂无有日期的记录'
@@ -201,12 +210,16 @@ export default function SourceCatalog() {
       {overview && <details className="field-catalog"><summary>查看字段目录（{overview.fields.length}）</summary><div>{overview.fields.map(field => <span key={field.name}><b>{fieldName(field.name)}</b><small>{field.non_null_count.toLocaleString()} 条非空</small></span>)}</div></details>}
     </section>
 
-    {tags.length > 0 && <section className="panel tag-panel"><div className="panel-head"><div><h2>标签筛选</h2><p>标签来自确定性关键词与已有字段，仅用于检索，不代表情绪或投资判断</p></div>{selectedTag && <button className="clear-tag" onClick={() => { setSelectedTag(''); setRecordOffset(0) }}>清除标签</button>}</div><div className="tag-filters">{tags.map(item => <button key={item.tag} className={selectedTag === item.tag ? 'active' : ''} aria-pressed={selectedTag === item.tag} onClick={() => selectTag(item.tag)}><b>{item.tag}</b><span>{item.records.toLocaleString()} 条</span></button>)}</div></section>}
+    {tags.length > 0 && <section className="panel tag-panel">
+      <div className="panel-head"><div><h2>标签筛选</h2><p>最多选择 5 个标签，可查询任一匹配或全部匹配；标签不代表情绪或投资判断</p></div><div className="tag-actions"><span>已选 {selectedTags.length}/5</span><select aria-label="标签匹配方式" value={matchMode} onChange={event => { setMatchMode(event.target.value as 'any' | 'all'); setRecordOffset(0) }}><option value="any">任一标签（并集）</option><option value="all">全部标签（交集）</option></select>{selectedTags.length > 0 && <button className="clear-tag" onClick={clearTags}>清除标签</button>}</div></div>
+      <div className="tag-filters">{tags.map(item => { const selected = selectedTags.includes(item.tag); return <button key={item.tag} className={selected ? 'active' : ''} aria-pressed={selected} disabled={selectedTags.length >= 5 && !selected} onClick={() => selectTag(item.tag)}><b>{item.tag}</b><span>{item.records.toLocaleString()} 条</span></button> })}</div>
+      {(tagNotice || selectedTags.length === 5) && <p className="tag-notice" role="status">{tagNotice || '已达到 5 个标签上限，可取消标签后再选择'}</p>}
+    </section>}
 
     <section className="panel">
       <div className="panel-head"><div><h2>最新内容</h2><p>{activeName} · 共 {records?.total.toLocaleString() ?? '—'} 条匹配记录，每页 20 条</p></div><form className="record-search" onSubmit={searchRecords}><input value={recordInput} onChange={event => setRecordInput(event.target.value)} placeholder="搜索标题" /><input type="date" value={dateInput} onChange={event => setDateInput(event.target.value)} aria-label="按日期筛选" /><button type="submit">筛选</button></form></div>
       {selectedFile && <div className="active-filter">正在只看文件：{selectedFile.path}<button onClick={() => { setSelectedFile(null); setRecordOffset(0) }}>清除文件筛选</button></div>}
-      {selectedTag && <div className="active-filter">当前标签：{selectedTag}<button onClick={() => { setSelectedTag(''); setRecordOffset(0) }}>清除标签筛选</button></div>}
+      {selectedTags.length > 0 && <div className="active-filter">当前标签（{matchMode === 'all' ? '全部匹配' : '任一匹配'}）：{selectedTags.join('、')}<button onClick={clearTags}>清除标签筛选</button></div>}
       {!records ? <div className="empty">正在读取当前页…</div> : records.items.length === 0 ? <div className="empty">当前筛选条件下暂无记录</div> : <div className="content-records">{records.items.map(record => <RecordCard key={`${record.source_id}-${record.record_index}`} record={record} />)}</div>}
       {records && <div className="pagination"><span>第 {Math.floor(recordOffset / limit) + 1} / {Math.max(1, Math.ceil(records.total / limit))} 页</span><div><button aria-label="上一页记录" disabled={recordOffset === 0} onClick={() => setRecordOffset(Math.max(0, recordOffset - limit))}>上一页</button><button aria-label="下一页记录" disabled={recordOffset + limit >= records.total} onClick={() => setRecordOffset(recordOffset + limit)}>下一页</button></div></div>}
     </section>

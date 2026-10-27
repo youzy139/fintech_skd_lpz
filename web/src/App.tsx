@@ -32,7 +32,7 @@ function Workspace({ page, onNavigate, latestDate, alertCount, children }: { pag
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">M</span><div>MarketLens<small>市场状态监控平台</small></div></div>
       <nav>{pages.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => onNavigate(id)}><span>{icon}</span>{label}{id === 'alerts' && alertCount > 0 && <b>{alertCount}</b>}</button>)}</nav>
-      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.2.2 · 测试版本</small></div>
+      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.2.3 · 测试版本</small></div>
     </aside>
     <main className="main" key={page}>
       <header><div><p className="eyebrow">MULTI-ASSET INTELLIGENCE</p><h1>{pages.find(item => item[0] === page)?.[1]}</h1></div><div className="asof"><span>数据截至</span><strong>{latestDate ? dateText(latestDate) : '—'}</strong></div></header>

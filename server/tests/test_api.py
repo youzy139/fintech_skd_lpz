@@ -25,7 +25,7 @@ def fake_service():
         source_overview=lambda kind: {"kind": kind, "files": 1, "records": 2, "start_date": "2024-01-01", "end_date": "2024-01-02", "undated_records": 0, "granularity": "day", "trend": [{"period": "2024-01-02", "count": 2}], "fields": []},
         source_tags=lambda kind: [{"tag": "人工智能", "records": 1}],
         source_files=lambda kind, query, offset, limit: {"total": 1, "items": [{"id": "source", "path": "科技.csv", "status": "imported", "record_count": 2}]},
-        source_records=lambda source_id, query, date, offset, limit, kind=None, tag=None: {"total": 1, "offset": offset, "limit": limit, "items": [{"source_id": "source", "source_path": "科技.csv", "kind": "social", "record_index": 0, "event_date": "2024-01-02", "title": "测试记录", "payload": {"text": "<b>原文</b>"}, "tags": ["人工智能"]}]},
+        source_records=lambda source_id, query, date, offset, limit, kind=None, tag=None, tags=None, match="any": {"total": 1, "offset": offset, "limit": limit, "items": [{"source_id": "source", "source_path": "科技.csv", "kind": "social", "record_index": 0, "event_date": "2024-01-02", "title": "测试记录", "payload": {"text": "<b>原文</b>"}, "tags": ["人工智能"]}]},
     )
 
 
@@ -84,5 +84,8 @@ def test_source_catalog_and_graphql_summary():
         assert page.json()["items"][0]["source_path"] == "科技.csv"
         assert http.get("/api/data/records?offset=-1").status_code == 422
         assert http.get("/api/data/records?limit=101").status_code == 422
+        assert http.get("/api/data/records?tags=人工智能&tags=半导体&match=all").status_code == 200
+        assert http.get("/api/data/records?match=invalid").status_code == 422
+        assert http.get("/api/data/records?tags=1&tags=2&tags=3&tags=4&tags=5&tags=6").status_code == 422
         response = http.post("/graphql", json={"query": "{ sourceSummary }"})
         assert response.json()["data"]["sourceSummary"]["imported_files"] == 1

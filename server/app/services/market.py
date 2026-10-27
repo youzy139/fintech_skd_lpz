@@ -74,8 +74,8 @@ class MarketService:
     def source_files(self, kind: str | None, query: str | None, offset: int, limit: int) -> dict[str, Any]:
         return self.catalog.list_files(kind, query, offset, limit)
 
-    def source_records(self, source_id: str | None, query: str | None, date: str | None, offset: int, limit: int, kind: str | None = None, tag: str | None = None) -> dict[str, Any]:
-        return self.catalog.list_records(source_id, query, date, offset, limit, kind, tag)
+    def source_records(self, source_id: str | None, query: str | None, date: str | None, offset: int, limit: int, kind: str | None = None, tag: str | None = None, tags: list[str] | None = None, match: str = "any") -> dict[str, Any]:
+        return self.catalog.list_records(source_id, query, date, offset, limit, kind, tag, tags, match)
 
     def close(self) -> None:
         self.store.close()

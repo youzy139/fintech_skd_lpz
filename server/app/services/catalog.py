@@ -275,7 +275,12 @@ class CatalogStore:
         return {"id": row[0], "kind": row[1], "path": row[2], "status": row[3], "record_count": row[4], "error_count": row[5], "sheets": json.loads(row[6]), "error": row[7], "size": row[8], "mtime_ns": row[9]}
 
     @synchronized
-    def list_records(self, source_id: str | None, query: str | None, date: str | None, offset: int, limit: int, kind: str | None = None, tag: str | None = None) -> dict[str, Any]:
+    def list_records(self, source_id: str | None, query: str | None, date: str | None, offset: int, limit: int, kind: str | None = None, tag: str | None = None, tags: list[str] | None = None, match: str = "any") -> dict[str, Any]:
+        selected_tags = list(dict.fromkeys(tags or ([tag] if tag else [])))
+        if len(selected_tags) > 5:
+            raise ValueError("最多同时筛选 5 个标签")
+        if match not in {"any", "all"}:
+            raise ValueError("标签匹配方式必须为 any 或 all")
         conditions: list[str] = []
         params: list[Any] = []
         if source_id:
@@ -290,35 +295,80 @@ class CatalogStore:
         if date:
             conditions.append("r.event_date = ?")
             params.append(date)
-        if tag:
-            conditions.extend(["tag_filter.tag = ?", "tag_filter.kind = r.kind"])
-            params.append(tag)
+        group_clause = ""
+        order = "r.event_date DESC, r.source_id, r.record_index DESC"
+        if selected_tags:
+            placeholders = ",".join("?" for _ in selected_tags)
+            conditions.append(f"tag_filter.tag IN ({placeholders})")
+            conditions.append("tag_filter.kind = r.kind")
+            params.extend(selected_tags)
             from_clause = "FROM source_record_tags tag_filter CROSS JOIN source_records r ON r.source_id=tag_filter.source_id AND r.record_index=tag_filter.record_index CROSS JOIN source_files f ON f.id=r.source_id"
+            if len(selected_tags) > 1:
+                group_clause = "GROUP BY r.source_id, r.record_index"
+                if match == "all":
+                    group_clause += f" HAVING COUNT(DISTINCT tag_filter.tag) = {len(selected_tags)}"
+                order = "MAX(tag_filter.event_date) DESC, tag_filter.source_id, tag_filter.record_index DESC"
+            else:
+                order = "tag_filter.event_date DESC, tag_filter.source_id, tag_filter.record_index DESC"
         else:
             from_clause = "FROM source_records r JOIN source_files f ON f.id=r.source_id"
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        if not query and not date:
+        if not query and not date and len(selected_tags) <= 1:
             count_conditions: list[str] = []
             count_params: list[Any] = []
             if source_id:
-                count_conditions.append("source_id = ?" if tag else "id = ?")
+                count_conditions.append("source_id = ?" if selected_tags else "id = ?")
                 count_params.append(source_id)
             if kind:
                 count_conditions.append("kind = ?")
                 count_params.append(kind)
-            if tag:
+            if len(selected_tags) == 1:
                 count_conditions.append("tag = ?")
-                count_params.append(tag)
+                count_params.append(selected_tags[0])
             count_where = f"WHERE {' AND '.join(count_conditions)}" if count_conditions else ""
-            count_table = "source_tag_stats" if tag else "source_files"
+            count_table = "source_tag_stats" if selected_tags else "source_files"
             total = self.connection.execute(f"SELECT COALESCE(SUM(record_count),0) FROM {count_table} {count_where}", count_params).fetchone()[0]
+        elif len(selected_tags) > 1:
+            if not query and not date:
+                tag_conditions = ["tag IN (" + ",".join("?" for _ in selected_tags) + ")"]
+                count_params: list[Any] = list(selected_tags)
+                if source_id:
+                    tag_conditions.append("source_id = ?")
+                    count_params.append(source_id)
+                if kind:
+                    tag_conditions.append("kind = ?")
+                    count_params.append(kind)
+                having = f" HAVING COUNT(DISTINCT tag) = {len(selected_tags)}" if match == "all" else ""
+                total = self.connection.execute(f"SELECT COUNT(*) FROM (SELECT source_id, record_index FROM source_record_tags WHERE {' AND '.join(tag_conditions)} GROUP BY source_id, record_index{having})", count_params).fetchone()[0]
+            else:
+                total = self.connection.execute(f"SELECT COUNT(*) FROM (SELECT r.source_id, r.record_index {from_clause} {where} {group_clause})", params).fetchone()[0]
         else:
             total = self.connection.execute(f"SELECT COUNT(*) {from_clause} {where}", params).fetchone()[0]
-        order = "tag_filter.event_date DESC, tag_filter.source_id, tag_filter.record_index DESC" if tag else "r.event_date DESC, r.source_id, r.record_index DESC"
-        rows = self.connection.execute(
-            f"SELECT r.source_id, f.path, f.kind, r.record_index, r.event_date, r.title, r.payload_json, (SELECT GROUP_CONCAT(t.tag, char(31)) FROM source_record_tags t WHERE t.source_id=r.source_id AND t.record_index=r.record_index) {from_clause} {where} ORDER BY {order} LIMIT ? OFFSET ?",
-            (*params, limit, offset),
-        ).fetchall()
+        if selected_tags:
+            if len(selected_tags) > 1 and not query and not date:
+                row_conditions = ["tag IN (" + ",".join("?" for _ in selected_tags) + ")"]
+                row_params: list[Any] = list(selected_tags)
+                if source_id:
+                    row_conditions.append("source_id = ?")
+                    row_params.append(source_id)
+                if kind:
+                    row_conditions.append("kind = ?")
+                    row_params.append(kind)
+                having = f" HAVING COUNT(DISTINCT tag) = {len(selected_tags)}" if match == "all" else ""
+                selected_rows = f"SELECT source_id, record_index, MAX(event_date) AS event_date FROM source_record_tags WHERE {' AND '.join(row_conditions)} GROUP BY source_id, record_index{having} ORDER BY event_date DESC, source_id, record_index DESC LIMIT ? OFFSET ?"
+            else:
+                selected_date = "MAX(tag_filter.event_date)" if len(selected_tags) > 1 else "tag_filter.event_date"
+                selected_rows = f"SELECT r.source_id, r.record_index, {selected_date} AS event_date {from_clause} {where} {group_clause} ORDER BY {order} LIMIT ? OFFSET ?"
+                row_params = params
+            rows = self.connection.execute(
+                f"SELECT r.source_id, f.path, f.kind, r.record_index, r.event_date, r.title, r.payload_json, (SELECT GROUP_CONCAT(t.tag, char(31)) FROM source_record_tags t WHERE t.source_id=r.source_id AND t.record_index=r.record_index) FROM ({selected_rows}) selected JOIN source_records r ON r.source_id=selected.source_id AND r.record_index=selected.record_index JOIN source_files f ON f.id=r.source_id ORDER BY selected.event_date DESC, selected.source_id, selected.record_index DESC",
+                (*row_params, limit, offset),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                f"SELECT r.source_id, f.path, f.kind, r.record_index, r.event_date, r.title, r.payload_json, (SELECT GROUP_CONCAT(t.tag, char(31)) FROM source_record_tags t WHERE t.source_id=r.source_id AND t.record_index=r.record_index) {from_clause} {where} {group_clause} ORDER BY {order} LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            ).fetchall()
         return {"total": total, "offset": offset, "limit": limit, "items": [{"source_id": row[0], "source_path": row[1], "kind": row[2], "record_index": row[3], "event_date": row[4], "title": row[5], "payload": json.loads(row[6]), "tags": row[7].split(chr(31)) if row[7] else []} for row in rows]}
 
     @synchronized

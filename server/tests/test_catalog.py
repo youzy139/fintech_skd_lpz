@@ -4,6 +4,8 @@ import csv
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
+
 from app.services.catalog import CatalogStore
 from market_core.domain.sources import SourceFile
 
@@ -88,6 +90,22 @@ def test_tag_counts_filtering_and_rebuild(tmp_path: Path):
     assert store.rebuild_statistics() == {"sources": 1, "records": 3}
     assert {entry["tag"]: entry["records"] for entry in store.list_tags("social")} == counts
     assert store.list_records(item.id, None, None, 0, 20, tag="人工智能")["total"] == 1
+    store.close()
+
+
+def test_multi_tag_union_intersection_deduplication_and_limit(tmp_path: Path):
+    store = CatalogStore(tmp_path / "catalog.db")
+    store.import_file(make_source(tmp_path, [("2024-01-01", "AI 与半导体"), ("2024-01-02", "通胀与加息"), ("2024-01-03", "普通文本")]))
+    union = store.list_records(None, None, None, 0, 20, "social", tags=["人工智能", "通胀"], match="any")
+    assert union["total"] == 2
+    assert len(union["items"]) == 2
+    intersection = store.list_records(None, None, None, 0, 20, "social", tags=["人工智能", "半导体"], match="all")
+    assert intersection["total"] == 1
+    assert intersection["items"][0]["title"] == "AI 与半导体"
+    assert store.list_records(None, None, None, 0, 20, "social", tags=["人工智能", "通胀"], match="all")["total"] == 0
+    assert store.list_records(None, None, None, 0, 20, "social", tags=["人工智能", "人工智能"], match="all")["total"] == 1
+    with pytest.raises(ValueError, match="最多同时筛选 5 个标签"):
+        store.list_records(None, None, None, 0, 20, "social", tags=[str(index) for index in range(6)])
     store.close()
 
 

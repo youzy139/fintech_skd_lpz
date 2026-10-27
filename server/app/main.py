@@ -47,7 +47,7 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
         if service is None:
             app.state.service.close()
 
-    app = FastAPI(title="金融市场状态监控平台", version="0.2.2", lifespan=lifespan)
+    app = FastAPI(title="金融市场状态监控平台", version="0.2.3", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])
     requests: dict[str, deque[float]] = defaultdict(deque)
 
@@ -69,7 +69,7 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
     @app.get("/api/health")
     def health(request: Request):
         service = current_service(request)
-        return {"status": "ok", "version": "0.2.2", "assets": len(service.series), "states": len(service.states)}
+        return {"status": "ok", "version": "0.2.3", "assets": len(service.series), "states": len(service.states)}
 
     @app.get("/api/assets")
     def assets(request: Request):
@@ -122,16 +122,16 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
         return current_service(request).source_tags(kind)
 
     @app.get("/api/data/records")
-    def records(request: Request, kind: str | None = None, query: str | None = None, date: str | None = None, tag: str | None = None, offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
-        return current_service(request).source_records(None, query, date, offset, limit, kind, tag)
+    def records(request: Request, kind: str | None = None, query: str | None = None, date: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
+        return current_service(request).source_records(None, query, date, offset, limit, kind, tag, tags, match)
 
     @app.get("/api/data/files")
     def source_files(request: Request, kind: str | None = None, query: str | None = None, offset: int = QueryParam(0, ge=0), limit: int = QueryParam(50, ge=1, le=100)):
         return current_service(request).source_files(kind, query, offset, limit)
 
     @app.get("/api/data/files/{source_id}/records")
-    def source_records(source_id: str, request: Request, query: str | None = None, date: str | None = None, tag: str | None = None, offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
-        return current_service(request).source_records(source_id, query, date, offset, limit, tag=tag)
+    def source_records(source_id: str, request: Request, query: str | None = None, date: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
+        return current_service(request).source_records(source_id, query, date, offset, limit, tag=tag, tags=tags, match=match)
 
     @app.websocket("/ws/replay")
     async def replay(websocket: WebSocket, start_index: int = 0, max_messages: int = 20):

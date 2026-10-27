@@ -17,10 +17,12 @@ const responses: Record<string, unknown> = {
   '/api/data/overview': { kind: null, files: 1046, records: 1556492, start_date: '1970-01-02', end_date: '2026-04-30', undated_records: 0, granularity: 'year', trend: [{ period: '2024', count: 2 }], fields: [{ name: 'text', non_null_count: 42 }] },
   '/api/data/overview?kind=social': { kind: 'social', files: 1, records: 42, start_date: '2024-01-01', end_date: '2024-01-02', undated_records: 0, granularity: 'day', trend: [{ period: '2024-01-02', count: 42 }], fields: [{ name: 'text', non_null_count: 42 }] },
   '/api/data/tags': [{ tag: '人工智能', records: 1 }],
-  '/api/data/tags?kind=social': [{ tag: '人工智能', records: 1 }],
+  '/api/data/tags?kind=social': [{ tag: '人工智能', records: 1 }, { tag: '半导体', records: 1 }, { tag: '通胀', records: 1 }, { tag: '外汇', records: 1 }, { tag: '股票市场', records: 1 }, { tag: '政策与监管', records: 1 }],
   '/api/data/records?offset=0&limit=20': { total: 1556492, offset: 0, limit: 20, items: [socialRecord] },
   '/api/data/records?offset=0&limit=20&kind=social': { total: 42, offset: 0, limit: 20, items: [socialRecord] },
-  '/api/data/records?offset=0&limit=20&tag=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&kind=social': { total: 1, offset: 0, limit: 20, items: [socialRecord] },
+  '/api/data/records?offset=0&limit=20&tags=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&match=any&kind=social': { total: 1, offset: 0, limit: 20, items: [socialRecord] },
+  '/api/data/records?offset=0&limit=20&tags=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&tags=%E5%8D%8A%E5%AF%BC%E4%BD%93&match=any&kind=social': { total: 1, offset: 0, limit: 20, items: [socialRecord] },
+  '/api/data/records?offset=0&limit=20&tags=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&tags=%E5%8D%8A%E5%AF%BC%E4%BD%93&match=all&kind=social': { total: 1, offset: 0, limit: 20, items: [socialRecord] },
   '/api/data/records?offset=20&limit=20&kind=social': { total: 42, offset: 20, limit: 20, items: [{ ...socialRecord, record_index: 20, text: '第二页正文', payload: { text: '第二页正文' } }] },
   '/api/data/files?offset=0&limit=20&kind=social': { total: 1, offset: 0, limit: 20, items: [{ id: 'source', kind: 'social', path: '科技.csv', status: 'imported', record_count: 42, error_count: 0, sheets: [], size: 100 }] },
   '/api/data/files/source/records?offset=0&limit=20': { total: 42, offset: 0, limit: 20, items: [socialRecord] },
@@ -37,7 +39,7 @@ async function openDataCenter() {
 
 describe('App', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(responses[path]) })))
+    vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(responses[path] ?? (path.startsWith('/api/data/records?') ? { total: 0, offset: 0, limit: 20, items: [] } : undefined)) })))
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true })
@@ -93,13 +95,38 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /社交媒体/ }))
     const tag = await screen.findByRole('button', { name: /人工智能 1 条/ })
     fireEvent.click(tag)
-    await waitFor(() => expect(screen.getByText(/当前标签：人工智能/)).toBeInTheDocument())
-    expect(fetch).toHaveBeenCalledWith('/api/data/records?offset=0&limit=20&tag=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&kind=social', expect.anything())
+    await waitFor(() => expect(screen.getByText(/当前标签.*人工智能/)).toBeInTheDocument())
+    expect(fetch).toHaveBeenCalledWith('/api/data/records?offset=0&limit=20&tags=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&match=any&kind=social', expect.anything())
     expect(tag).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getAllByText('人工智能').length).toBeGreaterThan(0)
+    expect(screen.getByText(/共 1 条匹配记录/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '清除标签筛选' }))
-    await waitFor(() => expect(screen.queryByText(/当前标签：人工智能/)).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText(/当前标签.*人工智能/)).not.toBeInTheDocument())
     expect(fetch).toHaveBeenCalledWith('/api/data/records?offset=0&limit=20&kind=social', expect.anything())
+  })
+
+  it('combines multiple tags with union and intersection modes', async () => {
+    await openDataCenter()
+    fireEvent.click(screen.getByRole('button', { name: /社交媒体/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /人工智能 1 条/ }))
+    fireEvent.click(screen.getByRole('button', { name: /半导体 1 条/ }))
+    await waitFor(() => expect(screen.getByText('已选 2/5')).toBeInTheDocument())
+    expect(fetch).toHaveBeenCalledWith('/api/data/records?offset=0&limit=20&tags=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&tags=%E5%8D%8A%E5%AF%BC%E4%BD%93&match=any&kind=social', expect.anything())
+    fireEvent.change(screen.getByRole('combobox', { name: '标签匹配方式' }), { target: { value: 'all' } })
+    await waitFor(() => expect(screen.getByText(/当前标签（全部匹配）/)).toBeInTheDocument())
+    expect(fetch).toHaveBeenCalledWith('/api/data/records?offset=0&limit=20&tags=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD&tags=%E5%8D%8A%E5%AF%BC%E4%BD%93&match=all&kind=social', expect.anything())
+    expect(screen.getByText(/共 1 条匹配记录/)).toBeInTheDocument()
+  })
+
+  it('limits selection to five tags and explains the limit', async () => {
+    await openDataCenter()
+    fireEvent.click(screen.getByRole('button', { name: /社交媒体/ }))
+    const first = await screen.findByRole('button', { name: /人工智能 1 条/ })
+    for (const name of ['人工智能', '半导体', '通胀', '外汇', '股票市场']) {
+      fireEvent.click(name === '人工智能' ? first : screen.getByRole('button', { name: new RegExp(`${name} 1 条`) }))
+    }
+    expect(screen.getByText('已选 5/5')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /政策与监管 1 条/ })).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('已达到 5 个标签上限')
   })
 
   it('animates scrolling and finishes at exact scrollTop zero', () => {
