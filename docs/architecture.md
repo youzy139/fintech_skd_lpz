@@ -2,7 +2,7 @@
 
 ## 1. 文档状态
 
-本文同时记录最终架构目标与 `v0.3.0` 当前实现。第 4～7 节中的分布式组件属于目标架构；第 8～10 节记录已经落地的仓库边界、技术栈和后续工作，阅读时不得将目标组件误判为已经部署。
+本文同时记录最终架构目标与 `v0.3.1` 当前实现。第 4～7 节中的分布式组件属于目标架构；第 8～10 节记录已经落地的仓库边界、技术栈和后续工作，阅读时不得将目标组件误判为已经部署。
 
 ## 2. 项目定位与边界
 
@@ -153,17 +153,24 @@ LLM 不得直接修改原始行情、特征、状态标签、已触发预警或�
 
 ## 7. 历史数据回放
 
-`v0.3.0` 已实现 Python + SQLite 数据之上的本地真实历史回放，尚未接入 Kafka/Flink：
+`v0.3.0` 已实现 Python + SQLite 数据之上的本地真实历史回放；`v0.3.1` 已增加真实单节点 Kafka 事件通道，Flink 尚未接入：
 
 - 回放会话按资产原始事件日期逐日读取输入；不同资产保留各自交易日历，某日无观测时不伪造行情。
 - 每个会话独立保存可见历史。首日之前的数据用于滚动窗口和模型预热，当日输入到达后才追加当日记录，不读取未来记录。
-- 特征通过现有确定性函数重新计算；状态通过连续 walk-forward 会话逐日识别，训练切片排除识别日；预警使用此前状态历史和当日结果生成。
+- 特征通过现有确定性函数重新计算；状态通过连续 walk-forward 会话逐日识别，训练切片排除识别日；预警使用此前状态历史和当日结果生成。本地与 Kafka 通道共用同一计算器。
 - 每条结果保存事件时间、UTC 实际处理时间、可见输入范围、当日输入条数、资产代码、特征、状态、预警和模型版本。
 - 时钟支持待开始、运行、暂停、完成和失败，支持范围选择、0.5/1/2/5/10 倍速及重开。暂停等待正在计算的日期结束后生效，继续通过事件唤醒后台任务；完成状态只在最后一天结果保存后发布。
-- REST 路径为 `/api/replay/calendar` 与 `/api/replay/sessions*`，新 WebSocket 为 `/ws/replay/{session_id}`；旧 `/ws/replay` 暂时保留作回归对照。
+- REST 路径为 `/api/replay/calendar`、`/api/kafka/status` 与 `/api/replay/sessions*`，新 WebSocket 为 `/ws/replay/{session_id}`；旧 `/ws/replay` 暂时保留作回归对照。
 - 当前回放输入仅为资产行情。宏观、事件和文本已经入库但尚未进入回放计算，接入时必须按实际公布或发布时间确定可见性，不能把统计期当成发布日期。
 
-回放只模拟数据到达过程，不是实时行情，也不代表分布式实时链路已经落地。后续 Kafka/Flink 版本必须复用并对比这里的业务结果。
+### Kafka v0.3.1 事件口径
+
+- 主题为 `marketlens.replay.days.v1`，当前单分区、单副本；key 为 `event_date`，value 为 `market.replay.day.v1` JSON。每个事件包含一个交易日全部资产观测，以及 `schema_version`、`event_id`、`session_id`、`run_id`、`event_time`、`replay_time`、`source` 和 payload。
+- `aiokafka` 生产者使用 `acks=all` 和幂等发送；消费者组按会话和运行标识隔离，从最早位点读取并过滤当前运行，关闭自动提交。
+- 消费者按 `event_id` 去重，非当前期望日期的消息先缓存；临时 `KafkaError` 按配置退避重试。模型处理成功后调用 `ack`，只提交各分区已连续处理完成的偏移，乱序缓存不会提前提交。
+- 重开产生新的 `run_id` 和消费者组并重新发送所选历史，防止旧位点导致新回放无数据。Kafka 仅承担事件传输，SQLite 继续保存原始档案，会话与计算结果仍保存在当前后端进程内。
+- 共享主题中的其他运行消息会跳过并提交，因此页面“位点提交”次数可能大于当前会话消费事件数；它不是当前模型的处理天数。
+- 当前单节点事件接入不是完整分布式系统，也没有 Checkpoint/Savepoint。Flink 版本必须复用并对比这里的业务结果。
 
 ## 8. 当前仓库边界
 
@@ -190,7 +197,7 @@ docs/                  # 架构和后续数据、模型文档
 ## 9. 当前技术栈与 LLM 配置
 
 - 本地环境为 Conda `fintech`，Python 3.12；依赖见 `environment.yml` 和 `requirements*.txt`。
-- 服务层使用 FastAPI、Strawberry GraphQL 和 Uvicorn，本地快照使用 SQLite。
+- 服务层使用 FastAPI、Strawberry GraphQL 和 Uvicorn，本地快照使用 SQLite；事件通道使用 `aiokafka==0.12.0`，本地验收 broker 为 Apache Kafka 4.3.2 单节点 KRaft。
 - 前端使用 React、TypeScript、Vite、ECharts 和 Vitest。
 - 模型使用 NumPy、pandas、scikit-learn，按滚动历史窗口执行标准化、PCA 和 KMeans。
 - Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。
@@ -200,6 +207,6 @@ docs/                  # 架构和后续数据、模型文档
 ## 10. 后续工作
 
 1. 在已完成的全部文件接入基础上，将宏观、事件和文本信号纳入特征与模型。
-2. 落地 Kafka/Flink、MySQL/ClickHouse/Redis/MinIO 与独立微服务，确定 Java/Caffeine 网关方案。
+2. 在已完成单节点 Kafka 接入的基础上落地 Flink、MySQL/ClickHouse/Redis/MinIO 与独立微服务，确定 Java/Caffeine 网关方案。
 3. 完善模型标签体系、回测、权限认证、缓存和 LLM 助手。
 4. 提供并验证完整 Docker Compose 一键启动和性能指标。

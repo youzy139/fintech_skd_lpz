@@ -2,7 +2,7 @@
 
 ## 项目概览
 
-本目录是 **2026 年上海科技大学第一届金融科技竞赛参赛项目**，产品名为 **MarketLens**，当前版本为 `v0.3.0` 测试版本。项目基于多资产行情、宏观指标、事件日历和舆情文本，建设市场状态（Market Regime）监控平台，覆盖数据接入、特征计算、状态识别、风险预警和可视化。
+本目录是 **2026 年上海科技大学第一届金融科技竞赛参赛项目**，产品名为 **MarketLens**，当前版本为 `v0.3.1` 测试版本。项目基于多资产行情、宏观指标、事件日历和舆情文本，建设市场状态（Market Regime）监控平台，覆盖数据接入、特征计算、状态识别、风险预警和可视化。
 
 当前已经实现的本地闭环：
 
@@ -10,13 +10,14 @@
 - 读取 39 个可用资产序列，保留原始交易日历、`close`/`yield` 字段差异及数据质量统计。
 - 计算市场收益、年化波动率、动量、趋势和资产相关性，使用滚动历史窗口内的 StandardScaler、PCA 与 KMeans 逐日识别状态。
 - 生成高波动、相关性异常和状态切换预警。
-- 提供 REST、GraphQL、WebSocket、OpenAPI 和简单进程内限流；本地真实历史回放按事件日期逐日追加行情并重新计算特征、状态和预警，支持暂停、继续、倍速、重开和快照恢复。
+- 提供 REST、GraphQL、WebSocket、OpenAPI 和简单进程内限流；真实历史回放支持本地直连与 Kafka 事件两种输入通道，按事件日期逐日追加行情并重新计算特征、状态和预警。
+- Kafka 4.3.2 单节点 KRaft 已实际运行，Python `aiokafka` 生产者按日期发送日批次，消费者去重、处理乱序、重试并在处理后手动提交位点；页面展示生产、消费、去重、重试和提交计数。
 - React 工作台包含网站首页、市场总览、状态分析、历史回放、特征分析、预警中心和数据中心；首页使用轻量摘要，各主要页面按需加载。数据中心提供预聚合概览、时间覆盖、字段目录、友好内容、服务端分页和安全的原始字段核对；最多 5 个标签支持并集/交集、去重总数和组合筛选。
 - 已有后端 pytest、前端 Vitest、分支覆盖率配置和生产构建流程。
 
-**当前实现不是分布式系统。** SQLite 是本地持久化方案；Kafka/Flink、MySQL/ClickHouse/Redis/MinIO、独立微服务、完整认证授权、LLM 助手和 Docker Compose 均未落地。真实历史回放不等于实时行情或分布式实时计算，不得把竞赛目标、架构规划或性能指标描述成已经实现或已经验收的能力。
+**当前实现不是完整分布式系统。** SQLite 是本地持久化方案，Kafka 仅完成单节点本地事件接入；Flink、MySQL/ClickHouse/Redis/MinIO、独立微服务、完整认证授权、LLM 助手和 Docker Compose 均未落地。真实历史回放不等于实时行情或分布式实时计算，不得把竞赛目标、架构规划或性能指标描述成已经实现或已经验收的能力。
 
-`v0.2.x` 已完成数据接入、存储、检索、质量和展示；当前 `v0.3.0` 已完成本地真实历史回放，后续依次推进 Kafka、Flink 和分布式基础设施。
+`v0.3.0` 已完成本地真实历史回放，当前 `v0.3.1` 已完成单节点 Kafka 事件接入；后续推进 Flink 和分布式基础设施。
 
 核心业务流程为“状态判断 → 预警决策 → 分析建议”。数值特征与状态由数学模型计算，预警由确定性规则产生；规划中的 LLM 只负责文本理解、证据整合与解释，不应成为核心链路的单点依赖。
 
@@ -25,10 +26,10 @@
 | 文件 | 实际用途 |
 | --- | --- |
 | `environment.yml` | Conda 环境 `fintech`，仅固定 Python 3.12 和 pip |
-| `requirements.txt` | 固定版本的运行依赖：FastAPI、Uvicorn、NumPy、pandas、scikit-learn、Strawberry GraphQL、openpyxl 等 |
+| `requirements.txt` | 固定版本的运行依赖：FastAPI、Uvicorn、aiokafka、NumPy、pandas、scikit-learn、Strawberry GraphQL、openpyxl 等 |
 | `requirements-dev.txt` | 引入运行依赖，并增加 pytest、pytest-cov、httpx |
 | `pyproject.toml` | 只配置 pytest 路径和 Coverage；不是 Python 包构建配置，也不声明项目依赖 |
-| `server/config.example.json` | 无密钥运行配置模板，包含数据目录、SQLite 路径、模型、预警、回放和 CORS 参数 |
+| `server/config.example.json` | 无密钥运行配置模板，包含数据目录、SQLite 路径、模型、预警、回放、Kafka 和 CORS 参数 |
 | `web/package.json` | React 19、TypeScript 5.7、Vite 6、ECharts 5、Vitest 3 及前端脚本 |
 | `web/package-lock.json` | npm 锁文件，锁文件版本为 3 |
 | `web/tsconfig.json` | TypeScript 严格模式、ES2022、Bundler 模块解析、`noEmit` |
@@ -37,7 +38,7 @@
 
 后端使用 Python 3.12 和标准库 `sqlite3`，不依赖 ORM。前端使用函数组件和 React Hooks，无路由库、状态管理库或独立 CSS 框架。当前没有配置 Ruff、Black、mypy、ESLint、Prettier，也没有前端覆盖率脚本；不要声称这些检查已存在。
 
-`server/app/core/config.py` 优先读取被 Git 忽略的 `server/config.json`，不存在时回退到 `server/config.example.json`。配置中的相对路径均相对于所选配置文件所在的 `server/` 目录解析。默认模型参数为：分析起点 2015-01-01、最少历史 504 个有效特征日、训练窗口 756 日、每 63 日重训、20 日波动窗口、60 日动量窗口、3 个聚类、随机种子 42。
+`server/app/core/config.py` 优先读取被 Git 忽略的 `server/config.json`，不存在时回退到 `server/config.example.json`。配置中的相对路径均相对于所选配置文件所在的 `server/` 目录解析。默认模型参数为：分析起点 2015-01-01、最少历史 504 个有效特征日、训练窗口 756 日、每 63 日重训、20 日波动窗口、60 日动量窗口、3 个聚类、随机种子 42。Kafka 默认关闭，可用 `KAFKA_ENABLED=true` 开启，并通过 `KAFKA_BOOTSTRAP_SERVERS`、`KAFKA_TOPIC` 覆盖连接参数；主题默认 `marketlens.replay.days.v1`、单分区，消费默认重试 3 次、退避 200ms。`aiokafka` 生产者没有公开 `retries` 参数，不得沿用其他客户端的配置名。
 
 ## 目录与模块职责
 
@@ -46,6 +47,7 @@
 ├── market_core/                  # 独立领域与算法核心，不依赖 FastAPI、server 或 web
 │   ├── domain/
 │   │   ├── market.py            # 资产、数据质量和预警数据类
+│   │   ├── events.py            # Kafka 日批次事件结构与校验
 │   │   ├── replay.py            # 回放时钟、逐日输入与结果数据类
 │   │   ├── sources.py           # 来源文件、来源记录和导入结果数据类
 │   │   └── tags.py              # 确定性主题关键词与结构字段标签规则
@@ -59,18 +61,20 @@
 │       └── alerts.py            # 高波动、相关性异常和状态切换规则
 ├── server/
 │   ├── app/
-│   │   ├── core/config.py       # 配置加载与路径解析
+│   │   ├── core/config.py       # 配置加载、路径解析和 Kafka 环境变量覆盖
 │   │   ├── services/
 │   │   │   ├── import_data.py   # 全量/增量导入及旧库统计回填入口
 │   │   │   ├── catalog.py       # 文件、记录、预聚合概览和导入批次的 SQLite 存取
+│   │   │   ├── kafka.py         # aiokafka 生产消费、去重、乱序缓存和位点提交
 │   │   │   ├── market.py        # 应用组装：加载资产、计算特征/状态/预警并保存快照
-│   │   │   ├── replay.py        # 日期输入查询、回放会话、控制与订阅管理
+│   │   │   ├── replay.py        # 日期输入、双通道会话、控制与订阅管理
 │   │   │   └── storage.py       # quality、states、alerts 快照写入
 │   │   └── main.py              # FastAPI、REST、GraphQL、WebSocket、CORS 与限流入口
-│   ├── tests/                   # 核心、导入、SQLite、回放和接口测试
+│   ├── tests/                   # 核心、导入、SQLite、回放、Kafka 和接口测试
 │   ├── config.example.json      # 可提交的配置模板
+│   ├── kafka.example.properties # 单节点 KRaft 配置模板
 │   ├── config.json              # 可选本地私有配置，Git 忽略
-│   └── data/                    # SQLite 等运行时产物，Git 忽略
+│   └── data/                    # SQLite、Kafka 和验收运行时产物，Git 忽略
 ├── web/
 │   ├── src/App.tsx              # 工作台外壳及各主要页面按需加载
 │   ├── src/Landing.tsx          # 产品首页与轻量摘要
@@ -97,7 +101,8 @@
 4. `SnapshotStore` 当前只提供保存和关闭方法，没有快照读取或启动恢复逻辑；不能把快照描述成已经生效的模型缓存。
 5. 首页只请求轻量摘要；市场页面进入工作台后加载市场数据，数据中心独立请求预聚合概览和当前页记录，文件目录只在展开时加载。GraphQL 当前页面没有使用；历史回放页通过 WebSocket 接收真实逐日结果。
 6. `ReplayManager` 创建独立会话，`ReplayDataCatalog` 只查询当前事件日期的行情，`HistoricalMarketReplay` 为每个会话维护可见历史并重新计算特征、状态和预警。会话保留事件时间与 UTC 处理时间，完成状态只在最后结果保存后发布；宏观与文本尚未进入回放模型。
-7. Vite 开发服务器把 `/api`、`/graphql` 代理到 `localhost:8000`，把 `/ws` 代理为 WebSocket。生产构建输出到 `web/dist/`；仓库尚无统一的生产启动或静态文件托管流程。
+7. Kafka 通道以 `event_date` 为 key 发送 `market.replay.day.v1` 日批次，包含会话、运行、事件和处理时间。消费者按运行过滤、按事件 ID 去重、缓存乱序，处理成功后手动提交连续位点；其他运行消息的跳过提交也会计入 `commit_count`。本地与 Kafka 通道共用模型，Kafka 不代替原始持久化。
+8. Vite 开发服务器把 `/api`、`/graphql` 代理到 `localhost:8000`，把 `/ws` 代理为 WebSocket。生产构建输出到 `web/dist/`；仓库尚无统一的生产启动或静态文件托管流程。
 
 ### 特征、模型与预警口径
 
@@ -113,7 +118,7 @@
 ### 对外接口
 
 - REST：`/api/health`、`/api/home/summary`、`/api/assets`、`/api/assets/{code}/series`、`/api/regimes/latest`、`/api/regimes`、`/api/features/latest`、`/api/alerts`、`/api/data/quality`、`/api/data/summary`、`/api/data/overview`、`/api/data/tags`、`/api/data/records`、`/api/data/files`、`/api/data/files/{source_id}/records`。
-- 回放 REST：`/api/replay/calendar`、`/api/replay/sessions`、`/api/replay/sessions/current`、`/api/replay/sessions/{id}`，以及会话的 `start`、`pause`、`resume`、`speed`、`restart` 子路径。
+- 回放 REST：`/api/replay/calendar`、`/api/kafka/status`、`/api/replay/sessions`、`/api/replay/sessions/current`、`/api/replay/sessions/{id}`，以及会话的 `start`、`pause`、`resume`、`speed`、`restart` 子路径。创建会话的 `mode` 为 `local` 或 `kafka`，Kafka 未启用时选择该模式返回 422。
 - GraphQL：`/graphql`，当前查询字段只有 `assets`、`latestState`、`sourceSummary`。
 - WebSocket：`/ws/replay/{session_id}` 发送会话快照和真实逐日计算结果；旧 `/ws/replay` 仍按预计算历史状态发送最多 100 条消息，仅保留作回归对照。两者都不是 Kafka/Flink 实时流。
 - OpenAPI：FastAPI 自动提供 `/docs`。
@@ -195,12 +200,12 @@ npm run build
 
 当前测试基线：
 
-- 后端 27 项测试通过，覆盖多行新闻 CSV、社媒日期规范化、全部指标 sheet、研究摘要元数据、资产重复/非法数据、字段校验、增量导入、统计与标签回填、标签词边界、多标签并集/交集/去重/上限、90 次并发目录查询、概览与分页、walk-forward 防未来泄漏、预警证据、回放时钟、逐日输入、暂停唤醒、完成快照一致性、REST、GraphQL 和 WebSocket。
-- 后端当前总体分支覆盖率为 83.41%，高于 30% 的竞赛门槛；`import_data.py` 的命令行主流程仍未被自动化测试覆盖。
-- 前端 8 项测试通过，覆盖轻量首页、工作台导航、数据中心独立加载、类型切换、单选与最多 5 个标签多选、并集/交集、组合总数、清除、服务端翻页、文件按需目录、安全文本、精确回到顶部，以及回放开始、暂停、继续、倍速和 WebSocket 当日结果。
-- 后端接口测试使用 fake service 或小型固定行情，前端测试 mock `fetch`、WebSocket 和图表；这些测试本身不是原始数据到页面的完整端到端验收。
+- 后端 34 项测试通过，覆盖既有数据、模型、回放和接口行为，以及 Kafka 事件结构、日期 key、乱序连续位点、重复投递、消费重试、未确认消息重投和未启用通道的 API 校验。
+- 后端当前总体分支覆盖率为 84.30%，高于 30% 的竞赛门槛；`import_data.py` 的命令行主流程仍未被自动化测试覆盖。
+- 前端 9 项测试通过，覆盖既有首页、工作台、数据中心、标签与滚动行为，以及回放控制、WebSocket 当日结果和 Kafka 通道创建参数。
+- 后端接口测试使用 fake service、固定行情或 fake Kafka 消息，前端测试 mock `fetch`、WebSocket 和图表；这些单元与集成测试不代替真实 broker 和页面验收。
 - 已对真实 1,556,492 条记录回填统计和标签，验证八类数据概览、标签目录与每页 20 条查询；新闻普通分页约 14 毫秒，单标签筛选约 17 毫秒，新闻“人工智能 + 半导体”交集返回 6,907 条、约 120 毫秒。真实 Chrome 已检查首页、工作台、数据中心和标签组合筛选。
-- 已在真实数据上回放 2026-04-27 至 2026-04-30，通过 WebSocket 逐日收集结果，4 天状态均与原 walk-forward 完全一致，输入截止日不晚于事件日，训练截止日严格更早；暂停后游标不变。真实 Chrome 已从首页进入工作台并完成同区间回放，展示 4/4 日、39 条当日输入、模型版本和训练截止日，无浏览器运行错误。
+- 已在真实数据上回放 2026-04-27 至 2026-04-30，本地与 Kafka 通道均完成 4 天，状态均与原 walk-forward 完全一致。真实 Kafka 4.3.2 单节点首次链路生产 4、消费 4、提交 4；共享主题后续运行会因跳过旧消息产生更多提交次数。真实 Chrome 已选择 Kafka 通道完成同区间回放，页面无运行错误。
 - 当前没有 CI 工作流、可持续运行的浏览器端 E2E 测试套件、容器部署验收、性能压测报告或前端覆盖率统计。
 
 修改解析、模型或接口时，应增加与行为对应的测试；不要只验证模块可导入。完整链路、真实页面、部署和性能仍需单独验证。

@@ -1,5 +1,6 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
+aiokafka==0.12.0
 numpy==2.2.5
 pandas==2.2.3
 scikit-learn==1.6.1

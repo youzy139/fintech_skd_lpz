@@ -9,8 +9,29 @@ from uuid import uuid4
 import pandas as pd
 
 from app.core.config import AppConfig
+from app.services.kafka import KafkaReplayPipeline
 from market_core.domain.replay import AssetObservation, ReplayClock, ReplayDayInput, ReplayDayResult
 from market_core.models.replay import HistoricalMarketReplay
+
+
+class LocalReplayPipeline:
+    def __init__(self, dates: tuple[date, ...], catalog):
+        self.dates = dates
+        self.catalog = catalog
+        self.stats = {"produced_events": 0, "consumed_events": 0, "duplicate_events": 0, "retry_count": 0, "commit_count": 0}
+
+    async def start(self) -> None:
+        self.stats["produced_events"] = len(self.dates)
+
+    async def next(self, expected_date: date) -> ReplayDayInput:
+        self.stats["consumed_events"] += 1
+        return self.catalog.read(expected_date)
+
+    async def ack(self, batch: ReplayDayInput) -> None:
+        self.stats["commit_count"] += 1
+
+    async def close(self) -> None:
+        pass
 
 
 class ReplayDataCatalog:
@@ -43,12 +64,15 @@ class ReplayDataCatalog:
 
 
 class ReplaySession:
-    def __init__(self, session_id: str, dates: tuple[date, ...], speed: float, catalog: ReplayDataCatalog, config: AppConfig):
+    def __init__(self, session_id: str, dates: tuple[date, ...], speed: float, catalog: ReplayDataCatalog, config: AppConfig, mode: str = "local"):
         self.id = session_id
+        self.mode = mode
         self.clock = ReplayClock(dates, speed)
         self.catalog = catalog
         self.config = config
         self.engine: HistoricalMarketReplay | None = None
+        self.pipeline = None
+        self.event_stats = {"produced_events": 0, "consumed_events": 0, "duplicate_events": 0, "retry_count": 0, "commit_count": 0}
         self.latest_result: ReplayDayResult | None = None
         self.task: asyncio.Task | None = None
         self.lock = asyncio.Lock()
@@ -57,8 +81,11 @@ class ReplaySession:
 
     def snapshot(self) -> dict[str, Any]:
         total = len(self.clock.dates)
+        if self.pipeline:
+            self.event_stats = dict(self.pipeline.stats)
         return {
             "id": self.id,
+            "mode": self.mode,
             "start_date": self.clock.dates[0].isoformat(),
             "end_date": self.clock.dates[-1].isoformat(),
             "status": self.clock.status,
@@ -68,6 +95,7 @@ class ReplaySession:
             "current_date": self.clock.current_date.isoformat() if self.clock.current_date else None,
             "progress": self.clock.position / total,
             "error": self.clock.error,
+            "event_stats": dict(self.event_stats),
             "latest_result": asdict(self.latest_result) if self.latest_result else None,
         }
 
@@ -116,15 +144,21 @@ class ReplaySession:
         async with self.lock:
             self.clock.restart()
             self.engine = None
+            self.pipeline = None
+            self.event_stats = {key: 0 for key in self.event_stats}
             self.latest_result = None
             await self.status_message("replay_reset")
         return await self.start()
 
     async def _run(self) -> None:
+        pipeline = None
         try:
+            pipeline = KafkaReplayPipeline(self.id, self.clock.dates, self.catalog, self.config.kafka) if self.mode == "kafka" else LocalReplayPipeline(self.clock.dates, self.catalog)
+            self.pipeline = pipeline
             async with self.lock:
                 if self.engine is None:
                     self.engine = await asyncio.to_thread(HistoricalMarketReplay, self.catalog.series, self.config.model, self.config.alerts, self.clock.dates[0])
+                await pipeline.start()
             while self.clock.status in {"running", "paused"}:
                 if self.clock.status == "paused":
                     await self.resumed.wait()
@@ -133,8 +167,9 @@ class ReplaySession:
                     if self.clock.status == "paused":
                         continue
                     event_date = self.clock.advance()
-                    batch = self.catalog.read(event_date)
+                    batch = await pipeline.next(event_date)
                     self.latest_result = await asyncio.to_thread(self.engine.advance, batch)
+                    await pipeline.ack(batch)
                     if self.clock.position == len(self.clock.dates):
                         self.clock.complete()
                     await self.publish({"type": "replay_day", "session": self.snapshot(), "result": asdict(self.latest_result)})
@@ -147,6 +182,11 @@ class ReplaySession:
                 if self.clock.status not in {"completed", "failed"}:
                     self.clock.fail(str(error))
                 await self.status_message("replay_error")
+        finally:
+            if pipeline:
+                self.event_stats = dict(pipeline.stats)
+                await pipeline.close()
+            self.pipeline = None
 
     async def close(self) -> None:
         if self.task and not self.task.done():
@@ -165,10 +205,23 @@ class ReplayManager:
     def calendar(self) -> dict[str, Any]:
         return self.catalog.calendar()
 
-    def create(self, start: date, end: date, speed: float) -> dict[str, Any]:
+    def kafka_status(self) -> dict[str, Any]:
+        return {
+            "enabled": self.config.kafka.get("enabled", False),
+            "bootstrap_servers": self.config.kafka["bootstrap_servers"],
+            "topic": self.config.kafka["topic"],
+            "topic_partitions": self.config.kafka["topic_partitions"],
+            "connection": "on-demand",
+        }
+
+    def create(self, start: date, end: date, speed: float, mode: str = "local") -> dict[str, Any]:
+        if mode not in {"local", "kafka"}:
+            raise ValueError("回放通道只支持 local 或 kafka")
+        if mode == "kafka" and not self.config.kafka.get("enabled", False):
+            raise ValueError("Kafka 事件通道尚未启用，请检查本地配置和 broker")
         dates = self.catalog.dates_between(start, end)
         session_id = uuid4().hex[:12]
-        session = ReplaySession(session_id, dates, speed, self.catalog, self.config)
+        session = ReplaySession(session_id, dates, speed, self.catalog, self.config, mode)
         session.clock.set_speed(speed)
         self.sessions[session_id] = session
         self.current_id = session_id

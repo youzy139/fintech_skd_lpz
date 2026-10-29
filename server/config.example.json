@@ -18,5 +18,13 @@
   "replay": {
     "interval_ms": 500
   },
+  "kafka": {
+    "enabled": false,
+    "bootstrap_servers": "127.0.0.1:9092",
+    "topic": "marketlens.replay.days.v1",
+    "topic_partitions": 1,
+    "consumer_max_retries": 3,
+    "retry_backoff_ms": 200
+  },
   "cors_origins": ["http://localhost:5173"]
 }

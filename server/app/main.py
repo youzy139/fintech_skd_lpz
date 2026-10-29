@@ -5,6 +5,7 @@ from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import date
 from time import monotonic
+from typing import Literal
 
 import strawberry
 from fastapi import FastAPI, HTTPException, Query as QueryParam, Request, WebSocket
@@ -23,6 +24,7 @@ class ReplayCreateRequest(BaseModel):
     start_date: date
     end_date: date
     speed: float = 1.0
+    mode: Literal["local", "kafka"] = "local"
 
 
 class ReplaySpeedRequest(BaseModel):
@@ -63,7 +65,7 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
             if service is None:
                 app.state.service.close()
 
-    app = FastAPI(title="金融市场状态监控平台", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="金融市场状态监控平台", version="0.3.1", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])
     requests: dict[str, deque[float]] = defaultdict(deque)
 
@@ -85,7 +87,7 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
     @app.get("/api/health")
     def health(request: Request):
         service = current_service(request)
-        return {"status": "ok", "version": "0.3.0", "assets": len(service.series), "states": len(service.states)}
+        return {"status": "ok", "version": "0.3.1", "assets": len(service.series), "states": len(service.states)}
 
     @app.get("/api/assets")
     def assets(request: Request):
@@ -159,6 +161,10 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
     def replay_calendar(request: Request):
         return request.app.state.replays.calendar()
 
+    @app.get("/api/kafka/status")
+    def kafka_status(request: Request):
+        return request.app.state.replays.kafka_status()
+
     @app.get("/api/replay/sessions/current")
     def current_replay(request: Request):
         return request.app.state.replays.current()
@@ -166,7 +172,7 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
     @app.post("/api/replay/sessions", status_code=201)
     def create_replay(payload: ReplayCreateRequest, request: Request):
         try:
-            return request.app.state.replays.create(payload.start_date, payload.end_date, payload.speed)
+            return request.app.state.replays.create(payload.start_date, payload.end_date, payload.speed, payload.mode)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 

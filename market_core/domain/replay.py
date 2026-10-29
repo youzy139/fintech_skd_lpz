@@ -88,6 +88,8 @@ class AssetObservation:
 class ReplayDayInput:
     event_date: date
     observations: tuple[AssetObservation, ...]
+    event_id: str | None = None
+    produced_at: str | None = None
 
 
 @dataclass(frozen=True)

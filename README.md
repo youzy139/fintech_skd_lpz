@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-当前为 `v0.3.0` 测试版本，已完成全量赛题数据接入与真实资产市场监控闭环：
+当前为 `v0.3.1` 测试版本，已完成全量赛题数据接入与真实资产市场监控闭环：
 
 - 1,046 个输入文件全部登记并导入本地 SQLite，共 1,556,492 条逻辑记录，首次全量导入无失败文件。
 - 39 个可用资产包含 314,318 条行情记录；新闻 900,704 条、科技 41,413 条、宏观日历 185,753 条、研究摘要 1,000 篇，指标工作簿 31 个 sheet 全部处理。
@@ -17,10 +17,11 @@
 - 计算市场收益、20 日年化波动率、60 日动量、趋势和资产相关性。
 - 使用滚动训练窗口内的 StandardScaler、PCA 与 KMeans 逐日识别状态，训练数据严格早于识别日。
 - 生成高波动、相关性异常和状态切换预警，提供 REST、GraphQL、WebSocket 和 OpenAPI。
-- 新增本地真实历史回放：按事件日期逐日读取行情，只使用当日及此前历史重新计算特征、状态和预警；支持范围选择、暂停、继续、0.5～10 倍速、重开和断线快照恢复。页面展示事件时间、实际处理时间、输入范围、模型版本与当日新增预警。
+- 真实历史回放按事件日期逐日读取行情，只使用当日及此前历史重新计算特征、状态和预警；支持范围选择、暂停、继续、0.5～10 倍速、重开和断线快照恢复。页面展示事件时间、实际处理时间、输入范围、模型版本与当日新增预警。
+- 回放支持本地直连和 Kafka 事件两种通道。单节点 Kafka 4.3.2 KRaft 与 `aiokafka` 已实际联通，日批次按日期作 key，消费者去重、缓存乱序、重试并在模型处理成功后手动提交连续位点；页面展示事件计数。
 - 首页与工作台支持双向导航、平滑过渡、锚点滚动和精确回到顶部。
 
-当前 SQLite 是本地持久化实现，不代表分布式改造完成。Kafka/Flink、MySQL/ClickHouse/Redis/MinIO、独立微服务、完整权限、LLM 助手和 Docker Compose 仍是后续工作。
+当前 SQLite 是本地持久化实现，Kafka 只完成单节点事件接入，不代表完整分布式改造完成。Flink、MySQL/ClickHouse/Redis/MinIO、独立微服务、完整权限、LLM 助手和 Docker Compose 仍是后续工作。
 
 ## 本地启动
 
@@ -53,6 +54,32 @@ npm run dev
 ```
 
 访问 `http://localhost:5173`。后端 OpenAPI 文档位于 `http://localhost:8000/docs`，GraphQL 位于 `http://localhost:8000/graphql`。
+
+## 可选：启动本地 Kafka 事件通道
+
+默认使用本地直连，不需要 broker。Kafka 验证需要 Java 21；将 [Apache Kafka 4.3.2](https://dlcdn.apache.org/kafka/4.3.2/) 的 `kafka_2.13-4.3.2.tgz` 下载并解压到被 Git 忽略的 `server/data/kafka/`。以下命令在仓库根目录的 Git Bash 执行：
+
+```bash
+KAFKA_HOME=server/data/kafka/kafka_2.13-4.3.2
+cp server/kafka.example.properties server/data/kafka/kraft.properties
+CLUSTER_ID=$("$KAFKA_HOME/bin/kafka-storage.sh" random-uuid)
+"$KAFKA_HOME/bin/kafka-storage.sh" format -t "$CLUSTER_ID" -c server/data/kafka/kraft.properties
+
+# 保持此进程运行；显式 file URI 用于避免 Windows 路径被 Log4j 误解析
+KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=file:///$(pwd -W)/$KAFKA_HOME/config/log4j2.yaml" \
+  "$KAFKA_HOME/bin/kafka-server-start.sh" server/data/kafka/kraft.properties
+```
+
+另开终端创建单分区主题：
+
+```bash
+KAFKA_HOME=server/data/kafka/kafka_2.13-4.3.2
+KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=file:///$(pwd -W)/$KAFKA_HOME/config/tools-log4j2.yaml" \
+  "$KAFKA_HOME/bin/kafka-topics.sh" --bootstrap-server 127.0.0.1:9092 \
+  --create --if-not-exists --topic marketlens.replay.days.v1 --partitions 1 --replication-factor 1
+```
+
+使用 `KAFKA_ENABLED=true` 启动后端；也可用 `KAFKA_BOOTSTRAP_SERVERS` 和 `KAFKA_TOPIC` 覆盖地址与主题，或在私有 `server/config.json` 中设置 `kafka.enabled`。启动后在“历史回放”选择“Kafka 事件”。`/api/kafka/status` 只表示配置和按需连接方式，实际可用性以生产、消费和位点提交成功为准。
 
 ## 测试与构建
 
@@ -94,7 +121,7 @@ cd web && npm test && npm run build
 
 ## 版本约定
 
-版本号采用 `v主版本.次版本.修订号` 的三段式格式，并通过 Git 标签标记版本。当前版本为 `v0.3.0`。本地提交与标签可以先完成，远程推送必须等待实际体验并明确确认。
+版本号采用 `v主版本.次版本.修订号` 的三段式格式，并通过 Git 标签标记版本。当前版本为 `v0.3.1`。本地提交与标签可以先完成，远程推送必须等待实际体验并明确确认。
 
 当前路线是先以 `v0.2.x` 完善数据接入、存储、检索、质量和展示；数据侧稳定后进入 `v0.3.x`，推进真实历史回放、Kafka/Flink 和分布式基础设施。
 
