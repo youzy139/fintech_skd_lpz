@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Chart from './Chart'
 import Landing from './Landing'
 import SourceCatalog from './SourceCatalog'
+import ReplayCenter from './ReplayCenter'
 import { api } from './api'
 import type { Alert, Asset, AssetSeries, HomeSummary, Regime } from './types'
 
@@ -9,6 +10,7 @@ const pages = [
   ['home', '网站首页', '⌂'],
   ['overview', '市场总览', '⌁'],
   ['regimes', '状态分析', '◫'],
+  ['replay', '历史回放', '↻'],
   ['features', '特征分析', '∿'],
   ['alerts', '预警中心', '△'],
   ['data', '数据中心', '▤'],
@@ -32,7 +34,7 @@ function Workspace({ page, onNavigate, latestDate, alertCount, children }: { pag
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">M</span><div>MarketLens<small>市场状态监控平台</small></div></div>
       <nav>{pages.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => onNavigate(id)}><span>{icon}</span>{label}{id === 'alerts' && alertCount > 0 && <b>{alertCount}</b>}</button>)}</nav>
-      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.2.3 · 测试版本</small></div>
+      <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.3.0 · 测试版本</small></div>
     </aside>
     <main className="main" key={page}>
       <header><div><p className="eyebrow">MULTI-ASSET INTELLIGENCE</p><h1>{pages.find(item => item[0] === page)?.[1]}</h1></div><div className="asof"><span>数据截至</span><strong>{latestDate ? dateText(latestDate) : '—'}</strong></div></header>
@@ -64,7 +66,7 @@ function App() {
 
   const navigate = useCallback((next: Page) => {
     setPage(next)
-    if (next !== 'home' && next !== 'data' && !data) void loadMarket()
+    if (next !== 'home' && next !== 'data' && next !== 'replay' && !data) void loadMarket()
   }, [data, loadMarket])
 
   useEffect(() => { api<HomeSummary>('/api/home/summary').then(setHomeData).catch(() => setHomeData(null)) }, [])
@@ -93,6 +95,7 @@ function App() {
   }, [data])
 
   if (page === 'home') return <Landing data={homeData} onEnter={() => navigate('overview')} />
+  if (page === 'replay') return <Workspace page={page} onNavigate={navigate} latestDate={homeData?.latest.date} alertCount={homeData?.alert_count ?? 0}><ReplayCenter /></Workspace>
   if (page === 'data') return <Workspace page={page} onNavigate={navigate} latestDate={homeData?.latest.date} alertCount={homeData?.alert_count ?? 0}><SourceCatalog /></Workspace>
   if (!data && !error) return <main className="boot"><div className="loader" /><h1>MarketLens</h1><p>正在加载市场状态与分析结果…</p></main>
   if (!data) return <main className="boot"><h1>暂时无法连接</h1><p>{error}</p><button onClick={() => void loadMarket()}>重新连接</button></main>

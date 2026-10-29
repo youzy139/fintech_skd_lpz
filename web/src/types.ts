@@ -5,3 +5,6 @@ export type Regime = { date: string; label: string; confidence: number; model_ve
 export type Alert = { date: string; rule: string; level: string; title: string; evidence: string; value?: number; threshold?: number }
 export type Quality = { catalog_records: number; available_assets: number; loaded_assets: number; duplicate_dates: number; invalid_rows: number; total_rows: number; missing_assets: string[] }
 export type HomeSummary = { latest: Regime; alert_count: number; loaded_assets: number; total_rows: number; state_count: number }
+export type ReplayCalendar = { min_date: string; max_date: string; suggested_start: string; suggested_end: string }
+export type ReplayResult = { event_time: string; replay_time: string; input_start: string; input_end: string; input_records: number; observed_assets: string[]; features: Record<string, number>; state: Regime | null; alerts: Alert[]; model_version: string }
+export type ReplaySession = { id: string; start_date: string; end_date: string; status: 'pending' | 'running' | 'paused' | 'completed' | 'failed'; speed: number; processed_days: number; total_days: number; current_date: string | null; progress: number; error: string | null; latest_result: ReplayResult | null }

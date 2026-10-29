@@ -43,39 +43,56 @@ class WalkForwardRegimeModel:
     def predict(self, features: pd.DataFrame) -> list[dict]:
         if len(features) < self.minimum_history:
             raise ValueError(f"状态识别至少需要 {self.minimum_history} 个有效特征日")
-        results: list[dict] = []
-        fitted = None
-        centers: np.ndarray | None = None
-        trained_through: pd.Timestamp | None = None
+        session = WalkForwardRegimeSession(self)
+        results = []
         for index in range(self.minimum_history, len(features)):
-            if fitted is None or (index - self.minimum_history) % self.refit_interval == 0:
-                train = features.iloc[max(0, index - self.training_window):index]
-                fitted = self._fit(train)
-                centers = fitted[1].inverse_transform(fitted[2].cluster_centers_)
-                trained_through = features.index[index - 1]
-            scaler, pca, cluster = fitted
-            row = features.iloc[index]
-            scaled = scaler.transform(row[FEATURE_COLUMNS].to_frame().T)
-            reduced = pca.transform(scaled)
-            distances = np.linalg.norm(reduced - cluster.cluster_centers_, axis=1)
-            cluster_id = int(np.argmin(distances))
-            weights = np.exp(-(distances ** 2) / 2)
-            confidence = float(weights[cluster_id] / weights.sum())
-            contributions = sorted(
-                ({"feature": name, "value": float(row[name]), "standardized": float(scaled[0][position])} for position, name in enumerate(FEATURE_COLUMNS)),
-                key=lambda item: abs(item["standardized"]),
-                reverse=True,
-            )
-            results.append(
-                {
-                    "date": features.index[index].strftime("%Y-%m-%d"),
-                    "cluster": cluster_id,
-                    "label": self._label(cluster_id, centers[cluster_id]),
-                    "confidence": confidence,
-                    "model_version": f"walk-forward-{trained_through:%Y%m%d}",
-                    "trained_through": trained_through.strftime("%Y-%m-%d"),
-                    "features": {name: float(row[name]) for name in FEATURE_COLUMNS + ["trend", "sample_count"]},
-                    "contributions": contributions,
-                }
-            )
+            state = session.predict_latest(features.iloc[:index + 1])
+            if state is not None:
+                results.append(state)
         return results
+
+
+class WalkForwardRegimeSession:
+    def __init__(self, model: WalkForwardRegimeModel):
+        self.model = model
+        self.fitted = None
+        self.centers: np.ndarray | None = None
+        self.trained_through: pd.Timestamp | None = None
+        self.last_index = -1
+
+    def predict_latest(self, features: pd.DataFrame) -> dict | None:
+        index = len(features) - 1
+        if self.last_index >= 0 and index != self.last_index + 1:
+            raise ValueError("回放状态模型必须按连续特征日依次推进")
+        if index < self.model.minimum_history:
+            self.last_index = index
+            return None
+        if self.fitted is None or (index - self.model.minimum_history) % self.model.refit_interval == 0:
+            train = features.iloc[max(0, index - self.model.training_window):index]
+            self.fitted = self.model._fit(train)
+            self.centers = self.fitted[1].inverse_transform(self.fitted[2].cluster_centers_)
+            self.trained_through = features.index[index - 1]
+        scaler, pca, cluster = self.fitted
+        row = features.iloc[index]
+        scaled = scaler.transform(row[FEATURE_COLUMNS].to_frame().T)
+        reduced = pca.transform(scaled)
+        distances = np.linalg.norm(reduced - cluster.cluster_centers_, axis=1)
+        cluster_id = int(np.argmin(distances))
+        weights = np.exp(-(distances ** 2) / 2)
+        confidence = float(weights[cluster_id] / weights.sum())
+        contributions = sorted(
+            ({"feature": name, "value": float(row[name]), "standardized": float(scaled[0][position])} for position, name in enumerate(FEATURE_COLUMNS)),
+            key=lambda item: abs(item["standardized"]),
+            reverse=True,
+        )
+        self.last_index = index
+        return {
+            "date": features.index[index].strftime("%Y-%m-%d"),
+            "cluster": cluster_id,
+            "label": self.model._label(cluster_id, self.centers[cluster_id]),
+            "confidence": confidence,
+            "model_version": f"walk-forward-{self.trained_through:%Y%m%d}",
+            "trained_through": self.trained_through.strftime("%Y-%m-%d"),
+            "features": {name: float(row[name]) for name in FEATURE_COLUMNS + ["trend", "sample_count"]},
+            "contributions": contributions,
+        }

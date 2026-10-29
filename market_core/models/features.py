@@ -31,7 +31,7 @@ def average_correlation(returns: pd.DataFrame, window: int, start: pd.Timestamp)
     return pd.Series(values, name="correlation")
 
 
-def build_market_features(series: list[AssetSeries], volatility_window: int, momentum_window: int, analysis_start: str) -> pd.DataFrame:
+def build_market_features(series: list[AssetSeries], volatility_window: int, momentum_window: int, analysis_start: str, output_start: str | None = None) -> pd.DataFrame:
     close, returns = build_price_panels(series)
     start = pd.Timestamp(analysis_start)
     market_return = returns.mean(axis=1, skipna=True)
@@ -46,6 +46,9 @@ def build_market_features(series: list[AssetSeries], volatility_window: int, mom
             "sample_count": returns.notna().sum(axis=1),
         }
     )
-    features["correlation"] = average_correlation(returns, momentum_window, start - pd.Timedelta(days=120))
+    correlation_start = pd.Timestamp(output_start) if output_start else start - pd.Timedelta(days=120)
+    features["correlation"] = average_correlation(returns, momentum_window, correlation_start)
     features = features.loc[features.index >= start, FEATURE_COLUMNS + ["trend", "sample_count"]]
+    if output_start:
+        features = features.loc[features.index >= pd.Timestamp(output_start)]
     return features.dropna(subset=FEATURE_COLUMNS)

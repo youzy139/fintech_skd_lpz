@@ -3,18 +3,30 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from datetime import date
 from time import monotonic
 
 import strawberry
 from fastapi import FastAPI, HTTPException, Query as QueryParam, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from strawberry.fastapi import GraphQLRouter
 from strawberry.scalars import JSON
 
 from app.core.config import load_config
 from app.services.market import MarketService
+from app.services.replay import ReplayManager
+
+
+class ReplayCreateRequest(BaseModel):
+    start_date: date
+    end_date: date
+    speed: float = 1.0
+
+
+class ReplaySpeedRequest(BaseModel):
+    speed: float
 
 
 @strawberry.type
@@ -43,11 +55,15 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
         app.state.service = service or MarketService(config)
         if initialize:
             await asyncio.to_thread(app.state.service.initialize)
-        yield
-        if service is None:
-            app.state.service.close()
+        app.state.replays = ReplayManager(app.state.service, config)
+        try:
+            yield
+        finally:
+            await app.state.replays.close()
+            if service is None:
+                app.state.service.close()
 
-    app = FastAPI(title="金融市场状态监控平台", version="0.2.3", lifespan=lifespan)
+    app = FastAPI(title="金融市场状态监控平台", version="0.3.0", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])
     requests: dict[str, deque[float]] = defaultdict(deque)
 
@@ -69,7 +85,7 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
     @app.get("/api/health")
     def health(request: Request):
         service = current_service(request)
-        return {"status": "ok", "version": "0.2.3", "assets": len(service.series), "states": len(service.states)}
+        return {"status": "ok", "version": "0.3.0", "assets": len(service.series), "states": len(service.states)}
 
     @app.get("/api/assets")
     def assets(request: Request):
@@ -132,6 +148,80 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
     @app.get("/api/data/files/{source_id}/records")
     def source_records(source_id: str, request: Request, query: str | None = None, date: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
         return current_service(request).source_records(source_id, query, date, offset, limit, tag=tag, tags=tags, match=match)
+
+    def replay_session(request: Request, session_id: str):
+        try:
+            return request.app.state.replays.get(session_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/api/replay/calendar")
+    def replay_calendar(request: Request):
+        return request.app.state.replays.calendar()
+
+    @app.get("/api/replay/sessions/current")
+    def current_replay(request: Request):
+        return request.app.state.replays.current()
+
+    @app.post("/api/replay/sessions", status_code=201)
+    def create_replay(payload: ReplayCreateRequest, request: Request):
+        try:
+            return request.app.state.replays.create(payload.start_date, payload.end_date, payload.speed)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/replay/sessions/{session_id}")
+    def replay_detail(session_id: str, request: Request):
+        return replay_session(request, session_id).snapshot()
+
+    @app.post("/api/replay/sessions/{session_id}/start")
+    async def start_replay(session_id: str, request: Request):
+        try:
+            return await replay_session(request, session_id).start()
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/replay/sessions/{session_id}/pause")
+    async def pause_replay(session_id: str, request: Request):
+        try:
+            return await replay_session(request, session_id).pause()
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/replay/sessions/{session_id}/resume")
+    async def resume_replay(session_id: str, request: Request):
+        try:
+            return await replay_session(request, session_id).resume()
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/replay/sessions/{session_id}/speed")
+    async def replay_speed(session_id: str, payload: ReplaySpeedRequest, request: Request):
+        try:
+            return await replay_session(request, session_id).set_speed(payload.speed)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/replay/sessions/{session_id}/restart")
+    async def restart_replay(session_id: str, request: Request):
+        return await replay_session(request, session_id).restart()
+
+    @app.websocket("/ws/replay/{session_id}")
+    async def replay_updates(websocket: WebSocket, session_id: str):
+        await websocket.accept()
+        try:
+            session = replay_session(websocket, session_id)
+        except HTTPException:
+            await websocket.close(code=4404)
+            return
+        queue = asyncio.Queue(maxsize=100)
+        session.subscribers.add(queue)
+        try:
+            await websocket.send_json({"type": "replay_snapshot", "session": session.snapshot()})
+            while True:
+                await websocket.send_json(await queue.get())
+        finally:
+            session.subscribers.discard(queue)
 
     @app.websocket("/ws/replay")
     async def replay(websocket: WebSocket, start_index: int = 0, max_messages: int = 20):
