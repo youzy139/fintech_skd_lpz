@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-当前为 `v0.3.1` 测试版本，已完成全量赛题数据接入与真实资产市场监控闭环：
+当前为 `v0.3.2` 测试版本，已完成全量赛题数据接入与真实资产市场监控闭环：
 
 - 1,046 个输入文件全部登记并导入本地 SQLite，共 1,556,492 条逻辑记录，首次全量导入无失败文件。
 - 39 个可用资产包含 314,318 条行情记录；新闻 900,704 条、科技 41,413 条、宏观日历 185,753 条、研究摘要 1,000 篇，指标工作簿 31 个 sheet 全部处理。
@@ -18,10 +18,11 @@
 - 使用滚动训练窗口内的 StandardScaler、PCA 与 KMeans 逐日识别状态，训练数据严格早于识别日。
 - 生成高波动、相关性异常和状态切换预警，提供 REST、GraphQL、WebSocket 和 OpenAPI。
 - 真实历史回放按事件日期逐日读取行情，只使用当日及此前历史重新计算特征、状态和预警；支持范围选择、暂停、继续、0.5～10 倍速、重开和断线快照恢复。页面展示事件时间、实际处理时间、输入范围、模型版本与当日新增预警。
-- 回放支持本地直连和 Kafka 事件两种通道。单节点 Kafka 4.3.2 KRaft 与 `aiokafka` 已实际联通，日批次按日期作 key，消费者去重、缓存乱序、重试并在模型处理成功后手动提交连续位点；页面展示事件计数。
+- 回放支持本地直连、Kafka 事件和 Flink 窗口三种通道。单节点 Kafka 4.3.2 KRaft 与 `aiokafka` 已实际联通，日批次按日期作 key，消费者去重、缓存乱序、重试并在模型处理成功后手动提交连续位点。
+- Flink 2.2.1 Java 作业按事件时间水位线完成 1d 窗口、去重和迟到分流，回放结束控制事件只推进水位线、不产生行情。检查点和 Kafka 事务输出已生效，Savepoint 停止与恢复以及恢复后的 4 天一致性回放已验证；页面展示事件计数。
 - 首页与工作台支持双向导航、平滑过渡、锚点滚动和精确回到顶部。
 
-当前 SQLite 是本地持久化实现，Kafka 只完成单节点事件接入，不代表完整分布式改造完成。Flink、MySQL/ClickHouse/Redis/MinIO、独立微服务、完整权限、LLM 助手和 Docker Compose 仍是后续工作。
+当前 SQLite 是本地持久化实现，Kafka 与 Flink 均为本地单节点验证环境，不代表完整分布式改造完成。MySQL/ClickHouse/Redis/MinIO、独立微服务、完整权限、LLM 助手和 Docker Compose 仍是后续工作。
 
 ## 本地启动
 
@@ -81,6 +82,41 @@ KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=file:///$(pwd -W)/$KAFKA_HOME/confi
 
 使用 `KAFKA_ENABLED=true` 启动后端；也可用 `KAFKA_BOOTSTRAP_SERVERS` 和 `KAFKA_TOPIC` 覆盖地址与主题，或在私有 `server/config.json` 中设置 `kafka.enabled`。启动后在“历史回放”选择“Kafka 事件”。`/api/kafka/status` 只表示配置和按需连接方式，实际可用性以生产、消费和位点提交成功为准。
 
+## 可选：启动 Flink 日窗口与容错
+
+需要 Java 21 和 Kafka。下载 [Flink 2.2.1](https://dlcdn.apache.org/flink/flink-2.2.1/) 到 `server/data/flink/flink-2.2.1`，下载 Maven 到 `server/data/maven/`。在仓库根目录执行：
+
+```bash
+# 编译 Java 作业；按本机 Maven 路径调整
+server/data/maven/apache-maven-3.9.16/bin/mvn -f flink/pom.xml package -DskipTests
+
+# Windows + Git Bash；已运行时会直接返回
+bash server/start-flink.sh
+
+# 创建正常窗口与迟到主题，并禁止按墙钟时间自动清理历史回放
+KAFKA_HOME=server/data/kafka/kafka_2.13-4.3.2
+export KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=file:///$(pwd -W)/$KAFKA_HOME/config/tools-log4j2.yaml"
+for topic in marketlens.features.days.v1 marketlens.replay.late.v1; do
+  "$KAFKA_HOME/bin/kafka-topics.sh" --bootstrap-server 127.0.0.1:9092 \
+    --create --if-not-exists --topic "$topic" --partitions 1 --replication-factor 1
+  "$KAFKA_HOME/bin/kafka-configs.sh" --bootstrap-server 127.0.0.1:9092 \
+    --alter --entity-type topics --entity-name "$topic" --add-config retention.ms=-1
+done
+```
+
+通过 Flink REST 上传并运行作业：
+
+```bash
+curl --request POST --form "jarfile=@flink/target/marketlens-flink.jar" http://127.0.0.1:8081/jars/upload
+# 用响应中的 JAR ID 替换下面的 JAR_ID
+JAR_ID=替换为上传响应中的ID
+curl --request POST --header "Content-Type: application/json" \
+  --data '{"entryClass":"com.marketlens.flink.DailyWindowJob","programArgs":"--checkpointInterval=5000 --checkpointDir=file:///C:/Users/15214/Desktop/project/fintech/server/data/flink/checkpoints","parallelism":1}' \
+  "http://127.0.0.1:8081/jars/$JAR_ID/run"
+```
+
+使用 `KAFKA_ENABLED=true FLINK_ENABLED=true` 启动后端，在“历史回放”选择“Flink 窗口”。作业每 5 秒检查点一次，窗口结果通过 Kafka 事务提交，后端以 `read_committed` 消费。每轮回放末尾的 `market.replay.control.v1` 只推进水位线，不进入窗口或模型。`POST /jobs/{jobid}/savepoints` 可触发 Savepoint；恢复时使用相同 JAR 和 `savepointPath`。当前 REST 配置只表示按需连接，实际可用性以作业 RUNNING、检查点和回放结果为准。
+
 ## 测试与构建
 
 ```bash
@@ -121,7 +157,7 @@ cd web && npm test && npm run build
 
 ## 版本约定
 
-版本号采用 `v主版本.次版本.修订号` 的三段式格式，并通过 Git 标签标记版本。当前版本为 `v0.3.1`。本地提交与标签可以先完成，远程推送必须等待实际体验并明确确认。
+版本号采用 `v主版本.次版本.修订号` 的三段式格式，并通过 Git 标签标记版本。当前版本为 `v0.3.2`。本地提交与标签可以先完成，远程推送必须等待实际体验并明确确认。
 
 当前路线是先以 `v0.2.x` 完善数据接入、存储、检索、质量和展示；数据侧稳定后进入 `v0.3.x`，推进真实历史回放、Kafka/Flink 和分布式基础设施。
 

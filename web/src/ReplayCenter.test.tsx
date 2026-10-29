@@ -30,6 +30,7 @@ describe('ReplayCenter', () => {
       let body: unknown = null
       if (path === '/api/replay/calendar') body = { min_date: '2024-01-01', max_date: '2024-03-06', suggested_start: '2024-03-04', suggested_end: '2024-03-06' }
       if (path === '/api/kafka/status') body = { enabled: true, bootstrap_servers: '127.0.0.1:9092', topic: 'test.replay.days', topic_partitions: 1, connection: 'on-demand' }
+      if (path === '/api/flink/status') body = { enabled: true, rest_url: 'http://127.0.0.1:8081', output_topic: 'test.features.days', late_topic: 'test.late.days', checkpoint_interval_ms: 2000, connection: 'on-demand' }
       if (path === '/api/replay/sessions' && init?.method === 'POST') body = { ...session, status: 'pending', mode: JSON.parse(String(init.body)).mode }
       if (path.endsWith('/start') || path.endsWith('/resume')) body = session
       if (path.endsWith('/pause')) body = { ...session, status: 'paused', processed_days: 1, current_date: '2024-03-04', progress: 1 / 3 }
@@ -78,6 +79,20 @@ describe('ReplayCenter', () => {
       const creation = vi.mocked(fetch).mock.calls.find(([path]) => path === '/api/replay/sessions')
       expect(creation).toBeDefined()
       expect(JSON.parse(String(creation?.[1]?.body))).toMatchObject({ mode: 'kafka', start_date: '2024-03-04', end_date: '2024-03-06' })
+    })
+  })
+
+  it('creates a Flink-mode replay when the window channel is selected', async () => {
+    render(<ReplayCenter />)
+    const channel = await screen.findByRole('combobox', { name: '回放通道' })
+    await waitFor(() => expect(channel).toBeEnabled())
+    fireEvent.change(channel, { target: { value: 'flink' } })
+    expect(screen.getByText('Flink 事件时间窗口 · 非实时行情')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '开始回放' }))
+    await waitFor(() => {
+      const creation = vi.mocked(fetch).mock.calls.find(([path]) => path === '/api/replay/sessions')
+      expect(creation).toBeDefined()
+      expect(JSON.parse(String(creation?.[1]?.body))).toMatchObject({ mode: 'flink', start_date: '2024-03-04', end_date: '2024-03-06' })
     })
   })
 })

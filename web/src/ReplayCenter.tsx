@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
-import type { KafkaStatus, ReplayCalendar, ReplaySession } from './types'
+import type { FlinkStatus, KafkaStatus, ReplayCalendar, ReplaySession } from './types'
 
 const statusNames = { pending: '待开始', running: '运行中', paused: '已暂停', completed: '已完成', failed: '失败' }
 const featureNames: Record<string, string> = { market_return: '市场收益', volatility: '年化波动率', momentum: '中期动量', correlation: '资产相关性', trend: '短期趋势', sample_count: '有效资产数' }
@@ -17,20 +17,22 @@ function percent(value: number) { return `${(value * 100).toFixed(2)}%` }
 export default function ReplayCenter() {
   const [calendar, setCalendar] = useState<ReplayCalendar | null>(null)
   const [kafkaStatus, setKafkaStatus] = useState<KafkaStatus | null>(null)
+  const [flinkStatus, setFlinkStatus] = useState<FlinkStatus | null>(null)
   const [session, setSession] = useState<ReplaySession | null>(null)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [speed, setSpeed] = useState(1)
-  const [mode, setMode] = useState<'local' | 'kafka'>('local')
+  const [mode, setMode] = useState<'local' | 'kafka' | 'flink'>('local')
   const [busy, setBusy] = useState(false)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    Promise.all([api<ReplayCalendar>('/api/replay/calendar'), api<ReplaySession | null>('/api/replay/sessions/current'), api<KafkaStatus>('/api/kafka/status')])
-      .then(([range, current, kafka]) => {
+    Promise.all([api<ReplayCalendar>('/api/replay/calendar'), api<ReplaySession | null>('/api/replay/sessions/current'), api<KafkaStatus>('/api/kafka/status'), api<FlinkStatus>('/api/flink/status')])
+      .then(([range, current, kafka, flink]) => {
         setCalendar(range)
         setKafkaStatus(kafka)
+        setFlinkStatus(flink)
         setStartDate(current?.start_date ?? range.suggested_start)
         setEndDate(current?.end_date ?? range.suggested_end)
         setSession(current)
@@ -79,11 +81,11 @@ export default function ReplayCenter() {
   const status = session?.status ?? 'pending'
 
   return <>
-    <div className="replay-intro"><div><span>EVENT-TIME REPLAY</span><h2>让历史按原来的时间顺序重新到达</h2><p>每天只把当日行情追加到可见历史，再计算特征、状态和预警。完整历史仍在档案库中，但不会提前进入模型。</p></div><b>{mode === 'kafka' ? 'Kafka 事件传输' : '本地真实计算'} · 非实时行情</b></div>
+    <div className="replay-intro"><div><span>EVENT-TIME REPLAY</span><h2>让历史按原来的时间顺序重新到达</h2><p>每天只把当日行情追加到可见历史，再计算特征、状态和预警。完整历史仍在档案库中，但不会提前进入模型。</p></div><b>{mode === 'flink' ? 'Flink 事件时间窗口' : mode === 'kafka' ? 'Kafka 事件传输' : '本地真实计算'} · 非实时行情</b></div>
     {error && <div className="error" role="alert">{error}</div>}
     <section className="replay-controls" aria-label="历史回放控制">
       <div className="replay-range"><label>开始日期<input aria-label="回放开始日期" type="date" min={calendar?.min_date} max={calendar?.max_date} value={startDate} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setStartDate(event.target.value)} /></label><span>至</span><label>结束日期<input aria-label="回放结束日期" type="date" min={calendar?.min_date} max={calendar?.max_date} value={endDate} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setEndDate(event.target.value)} /></label></div>
-      <label>事件通道<select aria-label="回放通道" value={mode} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setMode(event.target.value as 'local' | 'kafka')}><option value="local">本地直连</option><option value="kafka" disabled={!kafkaStatus?.enabled}>Kafka 事件{kafkaStatus?.enabled ? '' : '（未启用）'}</option></select></label>
+      <label>事件通道<select aria-label="回放通道" value={mode} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setMode(event.target.value as 'local' | 'kafka' | 'flink')}><option value="local">本地直连</option><option value="kafka" disabled={!kafkaStatus?.enabled}>Kafka 事件{kafkaStatus?.enabled ? '' : '（未启用）'}</option><option value="flink" disabled={!kafkaStatus?.enabled || !flinkStatus?.enabled}>Flink 窗口{kafkaStatus?.enabled && flinkStatus?.enabled ? '' : '（未启用）'}</option></select></label>
       <label className="replay-speed">播放速度<select aria-label="回放速度" value={speed} disabled={busy} onChange={event => void changeSpeed(Number(event.target.value))}>{speeds.map(value => <option key={value} value={value}>{value}×</option>)}</select></label>
       <div className="replay-buttons">
         {status !== 'running' && status !== 'paused' && <button className="replay-primary" disabled={busy || !startDate || !endDate} onClick={() => void createAndStart()}>开始回放</button>}
@@ -97,7 +99,7 @@ export default function ReplayCenter() {
       <div className="replay-track"><i style={{ width: `${(session?.progress ?? 0) * 100}%` }} /></div>
       <p>事件日期表示数据原本发生的日期；播放速度只改变到达间隔，不改变窗口、训练数据或计算结果。</p>
     </section>
-    {session && <div className="replay-event-stats"><span>通道 <b>{session.mode === 'kafka' ? 'Kafka' : '本地直连'}</b></span><span>已生产 <b>{session.event_stats.produced_events}</b></span><span>已消费 <b>{session.event_stats.consumed_events}</b></span><span>重复跳过 <b>{session.event_stats.duplicate_events}</b></span><span>消费重试 <b>{session.event_stats.retry_count}</b></span><span>位点提交 <b>{session.event_stats.commit_count}</b></span>{session.mode === 'kafka' && kafkaStatus && <small title={kafkaStatus.bootstrap_servers}>{kafkaStatus.topic} · {kafkaStatus.topic_partitions} 个分区</small>}</div>}
+    {session && <div className="replay-event-stats"><span>通道 <b>{session.mode === 'flink' ? 'Flink' : session.mode === 'kafka' ? 'Kafka' : '本地直连'}</b></span><span>已生产 <b>{session.event_stats.produced_events}</b></span><span>已消费 <b>{session.event_stats.consumed_events}</b></span><span>重复跳过 <b>{session.event_stats.duplicate_events}</b></span><span>消费重试 <b>{session.event_stats.retry_count}</b></span><span>位点提交 <b>{session.event_stats.commit_count}</b></span>{session.mode === 'flink' && flinkStatus ? <small title={flinkStatus.rest_url}>{flinkStatus.output_topic} · 检查点 {flinkStatus.checkpoint_interval_ms}ms</small> : session.mode === 'kafka' && kafkaStatus ? <small title={kafkaStatus.bootstrap_servers}>{kafkaStatus.topic} · {kafkaStatus.topic_partitions} 个分区</small> : null}</div>}
     {result ? <>
       <div className="metrics">
         <div className="metric featured"><span>当日市场状态</span><strong>{state?.label ?? '历史特征准备中'}</strong><small>{state ? `模型置信度 ${percent(state.confidence)}` : '有效历史不足时不强行识别'}</small></div>

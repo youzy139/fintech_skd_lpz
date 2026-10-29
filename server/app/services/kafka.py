@@ -39,6 +39,7 @@ class KafkaReplayPipeline:
             client_id=f"marketlens-replay-{self.session_id}",
             auto_offset_reset="earliest",
             enable_auto_commit=False,
+            isolation_level="read_committed" if self.settings.get("read_committed") else "read_uncommitted",
         )
         self.producer = AIOKafkaProducer(
             bootstrap_servers=self.settings["bootstrap_servers"],
@@ -52,11 +53,18 @@ class KafkaReplayPipeline:
         for event_date in self.dates:
             event = MarketDayEvent.from_batch(self.session_id, self.run_id, self.catalog.read(event_date))
             await self.producer.send_and_wait(
-                self.settings["topic"],
+                self.settings.get("produce_topic", self.settings["topic"]),
                 key=event.event_date.isoformat().encode("utf-8"),
                 value=json.dumps(event.to_dict(), ensure_ascii=False).encode("utf-8"),
             )
             self.stats["produced_events"] += 1
+        if self.settings.get("emit_end_of_input"):
+            control = MarketDayEvent.end_of_input(self.session_id, self.run_id, self.dates[-1])
+            await self.producer.send_and_wait(
+                self.settings.get("produce_topic", self.settings["topic"]),
+                key=control.event_date.isoformat().encode("utf-8"),
+                value=json.dumps(control.to_dict(), ensure_ascii=False).encode("utf-8"),
+            )
 
     async def _commit_message(self, message: Any) -> None:
         partition = TopicPartition(message.topic, message.partition)

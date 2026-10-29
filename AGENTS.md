@@ -2,7 +2,7 @@
 
 ## 项目概览
 
-本目录是 **2026 年上海科技大学第一届金融科技竞赛参赛项目**，产品名为 **MarketLens**，当前版本为 `v0.3.1` 测试版本。项目基于多资产行情、宏观指标、事件日历和舆情文本，建设市场状态（Market Regime）监控平台，覆盖数据接入、特征计算、状态识别、风险预警和可视化。
+本目录是 **2026 年上海科技大学第一届金融科技竞赛参赛项目**，产品名为 **MarketLens**，当前版本为 `v0.3.2` 测试版本。项目基于多资产行情、宏观指标、事件日历和舆情文本，建设市场状态（Market Regime）监控平台，覆盖数据接入、特征计算、状态识别、风险预警和可视化。
 
 当前已经实现的本地闭环：
 
@@ -10,14 +10,14 @@
 - 读取 39 个可用资产序列，保留原始交易日历、`close`/`yield` 字段差异及数据质量统计。
 - 计算市场收益、年化波动率、动量、趋势和资产相关性，使用滚动历史窗口内的 StandardScaler、PCA 与 KMeans 逐日识别状态。
 - 生成高波动、相关性异常和状态切换预警。
-- 提供 REST、GraphQL、WebSocket、OpenAPI 和简单进程内限流；真实历史回放支持本地直连与 Kafka 事件两种输入通道，按事件日期逐日追加行情并重新计算特征、状态和预警。
-- Kafka 4.3.2 单节点 KRaft 已实际运行，Python `aiokafka` 生产者按日期发送日批次，消费者去重、处理乱序、重试并在处理后手动提交位点；页面展示生产、消费、去重、重试和提交计数。
+- 提供 REST、GraphQL、WebSocket、OpenAPI 和简单进程内限流；真实历史回放支持本地直连、Kafka 事件和 Flink 窗口三种输入通道，最终由同一 Python 模型计算特征、状态和预警。
+- Kafka 4.3.2 单节点 KRaft 与 Flink 2.2.1 单 JobManager/TaskManager 已实际联通。Java 作业按事件时间水位线完成 1d 窗口、去重和迟到分流，使用检查点与 Kafka 事务输出；Savepoint 停止与恢复已验证。
 - React 工作台包含网站首页、市场总览、状态分析、历史回放、特征分析、预警中心和数据中心；首页使用轻量摘要，各主要页面按需加载。数据中心提供预聚合概览、时间覆盖、字段目录、友好内容、服务端分页和安全的原始字段核对；最多 5 个标签支持并集/交集、去重总数和组合筛选。
 - 已有后端 pytest、前端 Vitest、分支覆盖率配置和生产构建流程。
 
-**当前实现不是完整分布式系统。** SQLite 是本地持久化方案，Kafka 仅完成单节点本地事件接入；Flink、MySQL/ClickHouse/Redis/MinIO、独立微服务、完整认证授权、LLM 助手和 Docker Compose 均未落地。真实历史回放不等于实时行情或分布式实时计算，不得把竞赛目标、架构规划或性能指标描述成已经实现或已经验收的能力。
+**当前实现不是完整分布式系统。** SQLite 是本地持久化方案，Kafka 与 Flink 均为本地单节点验证环境；MySQL/ClickHouse/Redis/MinIO、独立微服务、完整认证授权、LLM 助手和 Docker Compose 均未落地。真实历史回放不等于实时行情或完整分布式生产系统，不得把竞赛目标、架构规划或性能指标描述成已经实现或已经验收的能力。
 
-`v0.3.0` 已完成本地真实历史回放，当前 `v0.3.1` 已完成单节点 Kafka 事件接入；后续推进 Flink 和分布式基础设施。
+`v0.3.0` 完成本地回放，`v0.3.1` 完成 Kafka 事件接入，当前 `v0.3.2` 完成 Flink 日窗口与 Savepoint；后续推进分布式存储和部署。
 
 核心业务流程为“状态判断 → 预警决策 → 分析建议”。数值特征与状态由数学模型计算，预警由确定性规则产生；规划中的 LLM 只负责文本理解、证据整合与解释，不应成为核心链路的单点依赖。
 
@@ -29,7 +29,8 @@
 | `requirements.txt` | 固定版本的运行依赖：FastAPI、Uvicorn、aiokafka、NumPy、pandas、scikit-learn、Strawberry GraphQL、openpyxl 等 |
 | `requirements-dev.txt` | 引入运行依赖，并增加 pytest、pytest-cov、httpx |
 | `pyproject.toml` | 只配置 pytest 路径和 Coverage；不是 Python 包构建配置，也不声明项目依赖 |
-| `server/config.example.json` | 无密钥运行配置模板，包含数据目录、SQLite 路径、模型、预警、回放、Kafka 和 CORS 参数 |
+| `server/config.example.json` | 无密钥运行配置模板，包含数据目录、SQLite 路径、模型、预警、回放、Kafka、Flink 和 CORS 参数 |
+| `flink/pom.xml` | Flink 2.2.1、Kafka Connector 5.0.0、Java 17 与 Maven Shade 构建 |
 | `web/package.json` | React 19、TypeScript 5.7、Vite 6、ECharts 5、Vitest 3 及前端脚本 |
 | `web/package-lock.json` | npm 锁文件，锁文件版本为 3 |
 | `web/tsconfig.json` | TypeScript 严格模式、ES2022、Bundler 模块解析、`noEmit` |
@@ -38,7 +39,7 @@
 
 后端使用 Python 3.12 和标准库 `sqlite3`，不依赖 ORM。前端使用函数组件和 React Hooks，无路由库、状态管理库或独立 CSS 框架。当前没有配置 Ruff、Black、mypy、ESLint、Prettier，也没有前端覆盖率脚本；不要声称这些检查已存在。
 
-`server/app/core/config.py` 优先读取被 Git 忽略的 `server/config.json`，不存在时回退到 `server/config.example.json`。配置中的相对路径均相对于所选配置文件所在的 `server/` 目录解析。默认模型参数为：分析起点 2015-01-01、最少历史 504 个有效特征日、训练窗口 756 日、每 63 日重训、20 日波动窗口、60 日动量窗口、3 个聚类、随机种子 42。Kafka 默认关闭，可用 `KAFKA_ENABLED=true` 开启，并通过 `KAFKA_BOOTSTRAP_SERVERS`、`KAFKA_TOPIC` 覆盖连接参数；主题默认 `marketlens.replay.days.v1`、单分区，消费默认重试 3 次、退避 200ms。`aiokafka` 生产者没有公开 `retries` 参数，不得沿用其他客户端的配置名。
+`server/app/core/config.py` 优先读取被 Git 忽略的 `server/config.json`，不存在时回退到 `server/config.example.json`。配置中的相对路径均相对于所选配置文件所在的 `server/` 目录解析。默认模型参数为：分析起点 2015-01-01、最少历史 504 个有效特征日、训练窗口 756 日、每 63 日重训、20 日波动窗口、60 日动量窗口、3 个聚类、随机种子 42。Kafka 默认关闭，可用 `KAFKA_ENABLED=true` 开启，并通过 `KAFKA_BOOTSTRAP_SERVERS`、`KAFKA_TOPIC` 覆盖连接参数；主题默认 `marketlens.replay.days.v1`、单分区，消费默认重试 3 次、退避 200ms。`aiokafka` 生产者没有公开 `retries` 参数，不得沿用其他客户端的配置名。Flink 默认关闭，可用 `FLINK_ENABLED=true` 开启，`FLINK_REST_URL` 默认 `http://127.0.0.1:8081`；输出主题为 `marketlens.features.days.v1`，迟到主题为 `marketlens.replay.late.v1`，Flink 模式要求 Kafka 同时启用。
 
 ## 目录与模块职责
 
@@ -67,14 +68,18 @@
 │   │   │   ├── catalog.py       # 文件、记录、预聚合概览和导入批次的 SQLite 存取
 │   │   │   ├── kafka.py         # aiokafka 生产消费、去重、乱序缓存和位点提交
 │   │   │   ├── market.py        # 应用组装：加载资产、计算特征/状态/预警并保存快照
-│   │   │   ├── replay.py        # 日期输入、双通道会话、控制与订阅管理
+│   │   │   ├── replay.py        # 日期输入、三通道会话、控制与订阅管理
 │   │   │   └── storage.py       # quality、states、alerts 快照写入
 │   │   └── main.py              # FastAPI、REST、GraphQL、WebSocket、CORS 与限流入口
 │   ├── tests/                   # 核心、导入、SQLite、回放、Kafka 和接口测试
 │   ├── config.example.json      # 可提交的配置模板
 │   ├── kafka.example.properties # 单节点 KRaft 配置模板
+│   ├── start-flink.sh           # Windows Git Bash 本地 Flink 集群启动
 │   ├── config.json              # 可选本地私有配置，Git 忽略
-│   └── data/                    # SQLite、Kafka 和验收运行时产物，Git 忽略
+│   └── data/                    # SQLite、Kafka、Flink 和验收运行时产物，Git 忽略
+├── flink/
+│   ├── pom.xml                  # Java 17、Flink 2.2.1 与 Kafka Connector 5.0.0 构建
+│   └── src/main/java/           # Kafka 日窗口、去重、水位线、迟到和检查点作业
 ├── web/
 │   ├── src/App.tsx              # 工作台外壳及各主要页面按需加载
 │   ├── src/Landing.tsx          # 产品首页与轻量摘要
@@ -101,8 +106,9 @@
 4. `SnapshotStore` 当前只提供保存和关闭方法，没有快照读取或启动恢复逻辑；不能把快照描述成已经生效的模型缓存。
 5. 首页只请求轻量摘要；市场页面进入工作台后加载市场数据，数据中心独立请求预聚合概览和当前页记录，文件目录只在展开时加载。GraphQL 当前页面没有使用；历史回放页通过 WebSocket 接收真实逐日结果。
 6. `ReplayManager` 创建独立会话，`ReplayDataCatalog` 只查询当前事件日期的行情，`HistoricalMarketReplay` 为每个会话维护可见历史并重新计算特征、状态和预警。会话保留事件时间与 UTC 处理时间，完成状态只在最后结果保存后发布；宏观与文本尚未进入回放模型。
-7. Kafka 通道以 `event_date` 为 key 发送 `market.replay.day.v1` 日批次，包含会话、运行、事件和处理时间。消费者按运行过滤、按事件 ID 去重、缓存乱序，处理成功后手动提交连续位点；其他运行消息的跳过提交也会计入 `commit_count`。本地与 Kafka 通道共用模型，Kafka 不代替原始持久化。
-8. Vite 开发服务器把 `/api`、`/graphql` 代理到 `localhost:8000`，把 `/ws` 代理为 WebSocket。生产构建输出到 `web/dist/`；仓库尚无统一的生产启动或静态文件托管流程。
+7. Kafka 通道以 `event_date` 为 key 发送 `market.replay.day.v1` 日批次，包含会话、运行、事件和处理时间。消费者按运行过滤、按事件 ID 去重、缓存乱序，处理成功后手动提交连续位点；其他运行消息的跳过提交也会计入 `commit_count`。
+8. Flink 通道消费同一输入主题，以最多 2 天乱序的水位线和 1d 窗口完成去重与聚合，允许迟到 2 天，更晚事件进入迟到主题。每轮末尾的控制事件只推进水位线并在窗口前过滤。Kafka 事务输出到 `marketlens.features.days.v1`，后端以 `read_committed` 消费。三种通道共用 Python 模型，Kafka/Flink 不代替原始持久化。
+9. Vite 开发服务器把 `/api`、`/graphql` 代理到 `localhost:8000`，把 `/ws` 代理为 WebSocket。生产构建输出到 `web/dist/`；仓库尚无统一的生产启动或静态文件托管流程。
 
 ### 特征、模型与预警口径
 
@@ -118,7 +124,7 @@
 ### 对外接口
 
 - REST：`/api/health`、`/api/home/summary`、`/api/assets`、`/api/assets/{code}/series`、`/api/regimes/latest`、`/api/regimes`、`/api/features/latest`、`/api/alerts`、`/api/data/quality`、`/api/data/summary`、`/api/data/overview`、`/api/data/tags`、`/api/data/records`、`/api/data/files`、`/api/data/files/{source_id}/records`。
-- 回放 REST：`/api/replay/calendar`、`/api/kafka/status`、`/api/replay/sessions`、`/api/replay/sessions/current`、`/api/replay/sessions/{id}`，以及会话的 `start`、`pause`、`resume`、`speed`、`restart` 子路径。创建会话的 `mode` 为 `local` 或 `kafka`，Kafka 未启用时选择该模式返回 422。
+- 回放 REST：`/api/replay/calendar`、`/api/kafka/status`、`/api/flink/status`、`/api/replay/sessions`、`/api/replay/sessions/current`、`/api/replay/sessions/{id}`，以及会话的 `start`、`pause`、`resume`、`speed`、`restart` 子路径。创建会话的 `mode` 为 `local`、`kafka` 或 `flink`，对应通道未启用时返回 422。
 - GraphQL：`/graphql`，当前查询字段只有 `assets`、`latestState`、`sourceSummary`。
 - WebSocket：`/ws/replay/{session_id}` 发送会话快照和真实逐日计算结果；旧 `/ws/replay` 仍按预计算历史状态发送最多 100 条消息，仅保留作回归对照。两者都不是 Kafka/Flink 实时流。
 - OpenAPI：FastAPI 自动提供 `/docs`。
@@ -200,12 +206,12 @@ npm run build
 
 当前测试基线：
 
-- 后端 34 项测试通过，覆盖既有数据、模型、回放和接口行为，以及 Kafka 事件结构、日期 key、乱序连续位点、重复投递、消费重试、未确认消息重投和未启用通道的 API 校验。
-- 后端当前总体分支覆盖率为 84.30%，高于 30% 的竞赛门槛；`import_data.py` 的命令行主流程仍未被自动化测试覆盖。
-- 前端 9 项测试通过，覆盖既有首页、工作台、数据中心、标签与滚动行为，以及回放控制、WebSocket 当日结果和 Kafka 通道创建参数。
-- 后端接口测试使用 fake service、固定行情或 fake Kafka 消息，前端测试 mock `fetch`、WebSocket 和图表；这些单元与集成测试不代替真实 broker 和页面验收。
+- 后端 35 项测试通过，覆盖既有数据、模型、回放和接口行为，以及 Kafka 事件结构、日期 key、乱序连续位点、重复投递、消费重试、未确认消息重投、结束控制事件和未启用通道的 API 校验。
+- 后端当前总体分支覆盖率为 83.83%，高于 30% 的竞赛门槛；`import_data.py` 的命令行主流程仍未被自动化测试覆盖。Flink Java 作业通过 Maven 编译、真实集群和端到端验收，不计算在 Python 覆盖率内。
+- 前端 10 项测试通过，覆盖既有首页、工作台、数据中心、标签与滚动行为，以及回放控制、WebSocket 当日结果、Kafka 与 Flink 通道创建参数。
+- 后端接口测试使用 fake service、固定行情或 fake Kafka 消息，前端测试 mock `fetch`、WebSocket 和图表；这些单元与集成测试不代替真实 broker、Flink 集群和页面验收。
 - 已对真实 1,556,492 条记录回填统计和标签，验证八类数据概览、标签目录与每页 20 条查询；新闻普通分页约 14 毫秒，单标签筛选约 17 毫秒，新闻“人工智能 + 半导体”交集返回 6,907 条、约 120 毫秒。真实 Chrome 已检查首页、工作台、数据中心和标签组合筛选。
-- 已在真实数据上回放 2026-04-27 至 2026-04-30，本地与 Kafka 通道均完成 4 天，状态均与原 walk-forward 完全一致。真实 Kafka 4.3.2 单节点首次链路生产 4、消费 4、提交 4；共享主题后续运行会因跳过旧消息产生更多提交次数。真实 Chrome 已选择 Kafka 通道完成同区间回放，页面无运行错误。
+- 已在真实数据上回放 2026-04-27 至 2026-04-30，本地、Kafka 与 Flink 通道均完成 4 天且状态一致。Flink 初次及 Savepoint 恢复后的两轮均生产 4、消费 4；REST 明确记录 `restored: 1`。超出允许迟到时间的事件已进入 `marketlens.replay.late.v1`，真实 Chrome 已选择 Flink 通道完成回放且无运行错误。
 - 当前没有 CI 工作流、可持续运行的浏览器端 E2E 测试套件、容器部署验收、性能压测报告或前端覆盖率统计。
 
 修改解析、模型或接口时，应增加与行为对应的测试；不要只验证模块可导入。完整链路、真实页面、部署和性能仍需单独验证。

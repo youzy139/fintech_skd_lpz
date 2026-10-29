@@ -173,3 +173,18 @@ def test_kafka_api_requires_enabled_channel(monkeypatch):
         local = http.post("/api/replay/sessions", json={"start_date": "2024-03-04", "end_date": "2024-03-04", "mode": "local"})
         assert local.status_code == 201
         assert local.json()["mode"] == "local"
+
+
+def test_end_of_input_control_advances_replay_without_market_observations():
+    control = MarketDayEvent.end_of_input("session", "run", date(2024, 1, 2))
+    restored = MarketDayEvent.from_dict(control.to_dict())
+    assert restored.event_type == "market.replay.control.v1"
+    assert restored.observations == ()
+    assert restored.event_date == date(2024, 1, 2)
+    payload = control.to_dict()
+    payload["payload"]["observations"] = [{"code": "A", "event_date": "2024-01-02", "value": 100}]
+    try:
+        MarketDayEvent.from_dict(payload)
+        assert False, "控制事件不应携带行情"
+    except ValueError as error:
+        assert "控制事件" in str(error)

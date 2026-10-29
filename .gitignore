@@ -20,10 +20,12 @@ server/data/
 .coverage
 htmlcov/
 
-# Frontend
+# Frontend and Java builds
 web/node_modules/
 web/dist/
 web/.npm-cache/
+flink/target/
+flink/dependency-reduced-pom.xml
 *.tsbuildinfo
 
 # Editors and operating systems

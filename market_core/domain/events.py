@@ -9,6 +9,7 @@ from market_core.domain.replay import AssetObservation, ReplayDayInput
 
 
 MARKET_DAY_EVENT = "market.replay.day.v1"
+MARKET_CONTROL_EVENT = "market.replay.control.v1"
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,18 @@ class MarketDayEvent:
             observations=batch.observations,
         )
 
+    @classmethod
+    def end_of_input(cls, session_id: str, run_id: str, event_date: date) -> MarketDayEvent:
+        return cls(
+            event_id=f"{session_id}:{run_id}:end-of-input",
+            session_id=session_id,
+            run_id=run_id,
+            event_date=event_date,
+            replay_time=datetime.now(timezone.utc).isoformat(),
+            observations=(),
+            event_type=MARKET_CONTROL_EVENT,
+        )
+
     def to_batch(self) -> ReplayDayInput:
         return ReplayDayInput(self.event_date, self.observations, self.event_id, self.replay_time)
 
@@ -57,7 +70,7 @@ class MarketDayEvent:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> MarketDayEvent:
-        if payload.get("schema_version") != 1 or payload.get("event_type") != MARKET_DAY_EVENT:
+        if payload.get("schema_version") != 1 or payload.get("event_type") not in {MARKET_DAY_EVENT, MARKET_CONTROL_EVENT}:
             raise ValueError("不支持的行情事件结构或版本")
         event_date = date.fromisoformat(payload["event_time"])
         observations = tuple(
@@ -68,6 +81,8 @@ class MarketDayEvent:
             raise ValueError("行情事件缺少会话或事件标识")
         if any(item.event_date != event_date or not math.isfinite(item.value) for item in observations):
             raise ValueError("行情事件包含跨日期或非法数值")
+        if payload["event_type"] == MARKET_CONTROL_EVENT and observations:
+            raise ValueError("回放控制事件不能携带行情观测")
         datetime.fromisoformat(payload["replay_time"])
         return cls(
             event_id=payload["event_id"],
@@ -76,5 +91,6 @@ class MarketDayEvent:
             event_date=event_date,
             replay_time=payload["replay_time"],
             observations=observations,
+            event_type=payload["event_type"],
             source=payload.get("source", "unknown"),
         )

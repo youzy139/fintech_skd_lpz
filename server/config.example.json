@@ -26,5 +26,12 @@
     "consumer_max_retries": 3,
     "retry_backoff_ms": 200
   },
+  "flink": {
+    "enabled": false,
+    "rest_url": "http://127.0.0.1:8081",
+    "output_topic": "marketlens.features.days.v1",
+    "late_topic": "marketlens.replay.late.v1",
+    "checkpoint_interval_ms": 5000
+  },
   "cors_origins": ["http://localhost:5173"]
 }

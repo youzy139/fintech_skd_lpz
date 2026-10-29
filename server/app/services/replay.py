@@ -153,7 +153,13 @@ class ReplaySession:
     async def _run(self) -> None:
         pipeline = None
         try:
-            pipeline = KafkaReplayPipeline(self.id, self.clock.dates, self.catalog, self.config.kafka) if self.mode == "kafka" else LocalReplayPipeline(self.clock.dates, self.catalog)
+            if self.mode == "flink":
+                settings = {**self.config.kafka, "topic": self.config.flink["output_topic"], "produce_topic": self.config.kafka["topic"], "read_committed": True, "emit_end_of_input": True}
+                pipeline = KafkaReplayPipeline(self.id, self.clock.dates, self.catalog, settings)
+            elif self.mode == "kafka":
+                pipeline = KafkaReplayPipeline(self.id, self.clock.dates, self.catalog, self.config.kafka)
+            else:
+                pipeline = LocalReplayPipeline(self.clock.dates, self.catalog)
             self.pipeline = pipeline
             async with self.lock:
                 if self.engine is None:
@@ -214,11 +220,23 @@ class ReplayManager:
             "connection": "on-demand",
         }
 
+    def flink_status(self) -> dict[str, Any]:
+        return {
+            "enabled": self.config.flink.get("enabled", False),
+            "rest_url": self.config.flink["rest_url"],
+            "output_topic": self.config.flink["output_topic"],
+            "late_topic": self.config.flink["late_topic"],
+            "checkpoint_interval_ms": self.config.flink["checkpoint_interval_ms"],
+            "connection": "on-demand",
+        }
+
     def create(self, start: date, end: date, speed: float, mode: str = "local") -> dict[str, Any]:
-        if mode not in {"local", "kafka"}:
-            raise ValueError("回放通道只支持 local 或 kafka")
+        if mode not in {"local", "kafka", "flink"}:
+            raise ValueError("回放通道只支持 local、kafka 或 flink")
         if mode == "kafka" and not self.config.kafka.get("enabled", False):
             raise ValueError("Kafka 事件通道尚未启用，请检查本地配置和 broker")
+        if mode == "flink" and not (self.config.kafka.get("enabled", False) and self.config.flink.get("enabled", False)):
+            raise ValueError("Flink 通道需要同时启用 Kafka 和 Flink，并运行日窗口作业")
         dates = self.catalog.dates_between(start, end)
         session_id = uuid4().hex[:12]
         session = ReplaySession(session_id, dates, speed, self.catalog, self.config, mode)

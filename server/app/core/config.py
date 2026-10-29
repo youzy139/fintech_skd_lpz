@@ -17,6 +17,7 @@ class AppConfig:
     alerts: dict[str, Any]
     replay: dict[str, Any]
     kafka: dict[str, Any]
+    flink: dict[str, Any]
     cors_origins: list[str]
 
 
@@ -38,6 +39,15 @@ def load_config(path: Path | None = None) -> AppConfig:
     kafka["enabled"] = os.getenv("KAFKA_ENABLED", str(kafka["enabled"])).lower() == "true"
     kafka["bootstrap_servers"] = os.getenv("KAFKA_BOOTSTRAP_SERVERS", kafka["bootstrap_servers"])
     kafka["topic"] = os.getenv("KAFKA_TOPIC", kafka["topic"])
+    flink = raw.get("flink", {
+        "enabled": False,
+        "rest_url": "http://127.0.0.1:8081",
+        "output_topic": "marketlens.features.days.v1",
+        "late_topic": "marketlens.replay.late.v1",
+        "checkpoint_interval_ms": 5000,
+    })
+    flink["enabled"] = os.getenv("FLINK_ENABLED", str(flink["enabled"])).lower() == "true"
+    flink["rest_url"] = os.getenv("FLINK_REST_URL", flink["rest_url"])
     return AppConfig(
         data_root=(base / raw["data_root"]).resolve(),
         database_path=(base / raw["database_path"]).resolve(),
@@ -45,5 +55,6 @@ def load_config(path: Path | None = None) -> AppConfig:
         alerts=raw["alerts"],
         replay=raw["replay"],
         kafka=kafka,
+        flink=flink,
         cors_origins=raw["cors_origins"],
     )
