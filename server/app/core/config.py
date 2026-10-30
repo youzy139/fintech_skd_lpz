@@ -18,16 +18,31 @@ class AppConfig:
     replay: dict[str, Any]
     kafka: dict[str, Any]
     flink: dict[str, Any]
+    mysql: dict[str, Any]
+    minio: dict[str, Any]
+    clickhouse: dict[str, Any]
+    redis: dict[str, Any]
+    storage_mode: str
     cors_origins: list[str]
 
 
 def load_config(path: Path | None = None) -> AppConfig:
-    config_path = path or SERVER_ROOT / "config.json"
+    configured_path = os.getenv("MARKETLENS_CONFIG")
+    config_path = path or (Path(configured_path) if configured_path else SERVER_ROOT / "config.json")
     if not config_path.is_file():
         config_path = SERVER_ROOT / "config.example.json"
     with config_path.open(encoding="utf-8") as handle:
         raw = json.load(handle)
     base = config_path.parent
+
+    def enabled(name: str, settings: dict[str, Any]) -> None:
+        settings["enabled"] = os.getenv(f"{name}_ENABLED", str(settings["enabled"])).lower() == "true"
+
+    def override(name: str, settings: dict[str, Any], *keys: str) -> None:
+        for key in keys:
+            environment_key = f"{name}_{key.upper()}"
+            settings[key] = os.getenv(environment_key, str(settings[key]))
+
     kafka = raw.get("kafka", {
         "enabled": False,
         "bootstrap_servers": "127.0.0.1:9092",
@@ -36,9 +51,8 @@ def load_config(path: Path | None = None) -> AppConfig:
         "consumer_max_retries": 3,
         "retry_backoff_ms": 200,
     })
-    kafka["enabled"] = os.getenv("KAFKA_ENABLED", str(kafka["enabled"])).lower() == "true"
-    kafka["bootstrap_servers"] = os.getenv("KAFKA_BOOTSTRAP_SERVERS", kafka["bootstrap_servers"])
-    kafka["topic"] = os.getenv("KAFKA_TOPIC", kafka["topic"])
+    enabled("KAFKA", kafka)
+    override("KAFKA", kafka, "bootstrap_servers", "topic")
     flink = raw.get("flink", {
         "enabled": False,
         "rest_url": "http://127.0.0.1:8081",
@@ -46,15 +60,45 @@ def load_config(path: Path | None = None) -> AppConfig:
         "late_topic": "marketlens.replay.late.v1",
         "checkpoint_interval_ms": 5000,
     })
-    flink["enabled"] = os.getenv("FLINK_ENABLED", str(flink["enabled"])).lower() == "true"
-    flink["rest_url"] = os.getenv("FLINK_REST_URL", flink["rest_url"])
+    enabled("FLINK", flink)
+    override("FLINK", flink, "rest_url", "output_topic", "late_topic", "checkpoint_interval_ms")
+    mysql = raw.get("mysql", {"enabled": False, "host": "127.0.0.1", "port": 3307, "database": "marketlens", "user": "root", "password": ""})
+    enabled("MYSQL", mysql)
+    override("MYSQL", mysql, "host", "port", "database", "user")
+    mysql["password"] = os.getenv("MYSQL_PASSWORD", mysql["password"])
+    minio = raw.get("minio", {"enabled": False, "endpoint": "127.0.0.1:9000", "access_key": "", "secret_key": "", "bucket": "marketlens-raw", "secure": False})
+    enabled("MINIO", minio)
+    override("MINIO", minio, "endpoint", "bucket")
+    minio["access_key"] = os.getenv("MINIO_ACCESS_KEY", minio["access_key"])
+    minio["secret_key"] = os.getenv("MINIO_SECRET_KEY", minio["secret_key"])
+    clickhouse = raw.get("clickhouse", {"enabled": False, "host": "127.0.0.1", "port": 8123, "database": "marketlens", "username": "default", "password": "", "secure": False})
+    enabled("CLICKHOUSE", clickhouse)
+    override("CLICKHOUSE", clickhouse, "host", "port", "database", "username")
+    clickhouse["password"] = os.getenv("CLICKHOUSE_PASSWORD", clickhouse["password"])
+    redis = raw.get("redis", {"enabled": False, "host": "127.0.0.1", "port": 6379, "db": 0, "password": "", "ttl_seconds": 60, "namespace": "marketlens:catalog:v1"})
+    enabled("REDIS", redis)
+    override("REDIS", redis, "host", "port", "db", "ttl_seconds", "namespace")
+    redis["password"] = os.getenv("REDIS_PASSWORD", redis["password"])
+    storage_mode = os.getenv("STORAGE_MODE", raw.get("storage_mode", "local"))
+    if storage_mode not in {"local", "distributed"}:
+        raise ValueError("STORAGE_MODE 必须为 local 或 distributed")
+    if storage_mode == "distributed" and not clickhouse["enabled"]:
+        raise ValueError("distributed 模式必须显式启用 ClickHouse")
+    data_root = Path(os.getenv("DATA_ROOT", raw["data_root"]))
+    database_path = Path(os.getenv("DATABASE_PATH", raw["database_path"]))
+    cors_origins = os.getenv("CORS_ORIGINS", ",".join(raw["cors_origins"])).split(",")
     return AppConfig(
-        data_root=(base / raw["data_root"]).resolve(),
-        database_path=(base / raw["database_path"]).resolve(),
+        data_root=(base / data_root).resolve(),
+        database_path=(base / database_path).resolve(),
         model=raw["model"],
         alerts=raw["alerts"],
         replay=raw["replay"],
         kafka=kafka,
         flink=flink,
-        cors_origins=raw["cors_origins"],
+        mysql=mysql,
+        minio=minio,
+        clickhouse=clickhouse,
+        redis=redis,
+        storage_mode=storage_mode,
+        cors_origins=[origin.strip() for origin in cors_origins if origin.strip()],
     )

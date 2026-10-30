@@ -1,6 +1,7 @@
 {
   "data_root": "../上科大数据合集",
   "database_path": "data/market.db",
+  "storage_mode": "local",
   "model": {
     "analysis_start": "2015-01-01",
     "minimum_history": 504,
@@ -32,6 +33,40 @@
     "output_topic": "marketlens.features.days.v1",
     "late_topic": "marketlens.replay.late.v1",
     "checkpoint_interval_ms": 5000
+  },
+  "mysql": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 3307,
+    "database": "marketlens",
+    "user": "root",
+    "password": ""
+  },
+  "minio": {
+    "enabled": false,
+    "endpoint": "127.0.0.1:9000",
+    "access_key": "",
+    "secret_key": "",
+    "bucket": "marketlens-raw",
+    "secure": false
+  },
+  "clickhouse": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8123,
+    "database": "marketlens",
+    "username": "default",
+    "password": "",
+    "secure": false
+  },
+  "redis": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 6379,
+    "db": 0,
+    "password": "",
+    "ttl_seconds": 60,
+    "namespace": "marketlens:catalog:v1"
   },
   "cors_origins": ["http://localhost:5173"]
 }

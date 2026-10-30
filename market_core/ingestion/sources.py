@@ -90,12 +90,19 @@ def iter_csv(source: SourceFile) -> Iterator[SourceRecord]:
 
 
 def iter_markdown(source: SourceFile) -> Iterator[SourceRecord]:
-    parts = source.absolute_path.stem.split("-", 3)
+    metadata_path = source.absolute_path.with_suffix(".source-name.json")
+    original_name = source.absolute_path.name
+    if metadata_path.is_file():
+        original_name = json.loads(metadata_path.read_text(encoding="utf-8"))["original_name"]
+    original_stem = Path(original_name).stem
+    parts = original_stem.split("-", 3)
     event_date = "-".join(parts[:3]) if len(parts) == 4 else None
     institution = parts[3].split("-", 1)[0] if len(parts) == 4 else ""
-    title = parts[3].split("-", 1)[1] if len(parts) == 4 and "-" in parts[3] else source.absolute_path.stem
+    title = parts[3].split("-", 1)[1] if len(parts) == 4 and "-" in parts[3] else original_stem
     text = source.absolute_path.read_text(encoding="utf-8-sig")
     payload = {"institution": institution, "title": title, "content": text}
+    if metadata_path.is_file():
+        payload["source_original_name"] = original_name
     yield SourceRecord(source.id, 0, event_date, title, payload)
 
 

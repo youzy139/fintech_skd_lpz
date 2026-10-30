@@ -2,7 +2,7 @@
 
 ## 1. 文档状态
 
-本文同时记录最终架构目标与 `v0.3.2` 当前实现。第 4～7 节中的分布式组件属于目标架构；第 8～10 节记录已经落地的仓库边界、技术栈和后续工作，阅读时不得将目标组件误判为已经部署。
+本文同时记录最终架构目标与 `v0.3.3` 当前实现。第 4～7 节中的分布式组件属于目标架构；第 8～10 节记录已经落地的仓库边界、技术栈和后续工作，阅读时不得将目标组件误判为已经部署。
 
 ## 2. 项目定位与边界
 
@@ -108,7 +108,9 @@
 
 存储设计需进一步落实 ODS/DWD/DWS/ADS 分层、时序分区、索引和生命周期策略。
 
-当前本地实现使用 SQLite：`source_files` 保存文件目录、指纹、状态和质量，`source_records` 保存分页可查询的原始 JSON 负载，`source_daily_stats` 与 `source_fields` 保存导入时同步累计的日期统计和字段目录，`source_record_tags` 与 `source_tag_stats` 保存确定性标签及计数，`import_batches` 记录导入批次。大型 CSV 按 1,000 条逻辑记录分批写入，Excel 使用只读模式，未变化文件跳过重导；旧数据库可用 `--rebuild-stats` 从已入库记录流式回填统计和标签，无需重读原始大文件。概览按时间跨度自动按日、月或年聚合，明细按事件日期倒序并由服务端分页。标签来自明确的中英文关键词与已有字段，仅用于检索，不参与情绪或市场状态判断。该实现用于本地开发与验证，后续再迁移到上述分布式存储。
+本地默认实现使用 SQLite：`source_files` 保存文件目录、指纹、状态和质量，`source_records` 保存分页可查询的原始 JSON 负载，`source_daily_stats` 与 `source_fields` 保存日期统计和字段目录，`source_record_tags` 与 `source_tag_stats` 保存确定性标签及计数，`import_batches` 记录导入批次。大型 CSV 分批写入，未变化文件跳过重导；标签仅用于检索，不参与市场状态判断。SQLite 同时保留模型快照和迁移基线，原始导入尚未完全移除该暂存层。
+
+`v0.3.3` 阶段 E 已增加显式 `STORAGE_MODE=local|distributed`：distributed 目录主读使用 ClickHouse，本地仍默认 SQLite。`online_publish` 先归档 MinIO 对象并登记 MySQL 元数据，再将单个来源的新代次记录、标签和统计写入 ClickHouse，完成内容摘要与计数核对后才更新发布指针。六个生效视图只读当前代次，失败保留旧版；多文件批次不是单一跨库事务，旧代次生命周期待后续落实。Redis 只缓存可重建查询并回到同一显式主存储。部署文件和详细验收边界见 [阶段 E 部署与验收](stage-e-deployment.md)。
 
 ### 6.5 服务层
 
@@ -210,13 +212,13 @@ docs/                  # 架构和后续数据、模型文档
 - 日窗口使用 Java 17、Flink 2.2.1、Kafka Connector 5.0.0 与 Maven 构建，本地为单 JobManager/TaskManager。
 - 前端使用 React、TypeScript、Vite、ECharts 和 Vitest。
 - 模型使用 NumPy、pandas、scikit-learn，按滚动历史窗口执行标准化、PCA 和 KMeans。
-- Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。
+- Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。默认八个容器和可选 Flink 已真实运行；ClickHouse 使用 25.8.4.13 官方校验包，MinIO 使用固定源码版本。
 - LLM 暂定使用 `deepseek-v4.1flash`，API 基础地址和模型可用性尚未验证，当前未接入核心链路。
 - 私钥可通过本地 `.env` 或后续 `server/config.json` 的忽略配置注入；不得提交真实密钥。
 
 ## 10. 后续工作
 
 1. 在已完成的全部文件接入基础上，将宏观、事件和文本信号纳入特征与模型。
-2. 在已完成单节点 Kafka/Flink 验证的基础上落地 MySQL/ClickHouse/Redis/MinIO 与独立微服务，确定 Java/Caffeine 网关方案。
+2. 在已完成单节点 Kafka/Flink 和分布式存储验证的基础上拆分独立微服务，确定 Java/Caffeine 网关方案。
 3. 完善模型标签体系、回测、权限认证、缓存和 LLM 助手。
-4. 提供并验证完整 Docker Compose 一键启动和性能指标。
+4. 完成正式性能指标、微服务治理和 `v1.0.0` 合规验收。

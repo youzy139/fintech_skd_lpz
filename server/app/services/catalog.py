@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections import Counter
@@ -214,6 +215,11 @@ class CatalogStore:
             sources += 1
         self.connection.commit()
         return {"sources": sources, "records": rows}
+
+    @synchronized
+    def data_version(self) -> str:
+        rows = self.connection.execute("SELECT id, size, mtime_ns, status, record_count, error_count, updated_at FROM source_files ORDER BY id").fetchall()
+        return hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()
 
     @synchronized
     def summary(self) -> dict[str, Any]:

@@ -1,0 +1,72 @@
+{
+  "data_root": "/data/competition",
+  "database_path": "/app/server/data/market.db",
+  "storage_mode": "distributed",
+  "model": {
+    "analysis_start": "2015-01-01",
+    "minimum_history": 504,
+    "training_window": 756,
+    "refit_interval": 63,
+    "volatility_window": 20,
+    "momentum_window": 60,
+    "cluster_count": 3,
+    "random_seed": 42
+  },
+  "alerts": {
+    "volatility_quantile": 0.9,
+    "correlation_quantile": 0.9
+  },
+  "replay": {
+    "interval_ms": 500
+  },
+  "kafka": {
+    "enabled": true,
+    "bootstrap_servers": "kafka:9092",
+    "topic": "marketlens.replay.days.v1",
+    "topic_partitions": 1,
+    "consumer_max_retries": 3,
+    "retry_backoff_ms": 200
+  },
+  "flink": {
+    "enabled": false,
+    "rest_url": "http://jobmanager:8081",
+    "output_topic": "marketlens.features.days.v1",
+    "late_topic": "marketlens.replay.late.v1",
+    "checkpoint_interval_ms": 5000
+  },
+  "mysql": {
+    "enabled": true,
+    "host": "mysql",
+    "port": 3306,
+    "database": "marketlens",
+    "user": "marketlens",
+    "password": ""
+  },
+  "minio": {
+    "enabled": true,
+    "endpoint": "minio:9000",
+    "access_key": "",
+    "secret_key": "",
+    "bucket": "marketlens-raw",
+    "secure": false
+  },
+  "clickhouse": {
+    "enabled": true,
+    "host": "clickhouse",
+    "port": 8123,
+    "database": "marketlens",
+    "username": "default",
+    "password": "",
+    "secure": false
+  },
+  "redis": {
+    "enabled": true,
+    "host": "redis",
+    "port": 6379,
+    "db": 0,
+    "password": "",
+    "ttl_seconds": 60,
+    "namespace": "marketlens:catalog:v1"
+  },
+  "cors_origins": ["http://localhost:5173", "http://127.0.0.1:5173"]
+}

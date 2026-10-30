@@ -5,6 +5,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from app.services.prepare_container_data import prepare_research_sources
 from market_core.domain.sources import SourceFile
 from market_core.ingestion.sources import discover_sources, iter_records, source_sheets
 
@@ -62,3 +63,24 @@ def test_research_metadata_is_parsed(tmp_path: Path):
     assert record.event_date == "2024-05-02"
     assert record.title == "市场摘要"
     assert record.payload["institution"] == "机构A"
+
+
+def test_container_research_preparation_preserves_content_and_metadata(tmp_path: Path):
+    source_root = tmp_path / "source"
+    output_root = tmp_path / "output"
+    original_name = "2024-05-02-机构A-" + "很长的研究标题" * 8 + ".md"
+    source_root.mkdir()
+    original = source_root / original_name
+    original.write_text("### 主要观点\n正文", encoding="utf-8")
+    assert prepare_research_sources(source_root, output_root)["sources"] == 1
+    prepared = list(output_root.glob("*.md"))
+    assert len(prepared) == 1
+    assert len(prepared[0].name.encode("utf-8")) < 100
+    assert prepared[0].read_text(encoding="utf-8") == original.read_text(encoding="utf-8")
+    item = SourceFile.create(output_root, prepared[0], "research")
+    record = list(iter_records(item))[0]
+    assert record.event_date == "2024-05-02"
+    assert record.title == original_name.removesuffix(".md").split("-", 3)[3].split("-", 1)[1]
+    assert record.payload["institution"] == "机构A"
+    assert record.payload["source_original_name"] == original_name
+    assert prepare_research_sources(source_root, output_root)["unchanged"] == 1

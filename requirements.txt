@@ -7,3 +7,7 @@ scikit-learn==1.6.1
 strawberry-graphql==0.270.5
 graphql-core==3.2.6
 openpyxl==3.1.5
+PyMySQL==1.2.3
+minio==7.2.20
+clickhouse-connect==1.11.0
+redis==8.1.0

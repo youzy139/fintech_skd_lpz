@@ -4,7 +4,9 @@ from dataclasses import asdict
 from typing import Any
 
 from app.core.config import AppConfig
+from app.services.cache import CachedCatalogStore, RedisJsonCache
 from app.services.catalog import CatalogStore
+from app.services.clickhouse_store import ClickHouseCatalogStore
 from app.services.storage import SnapshotStore
 from market_core.domain.market import AssetSeries
 from market_core.ingestion.assets import AssetRepository
@@ -22,7 +24,13 @@ class MarketService:
         self.alerts: list[dict] = []
         self.quality: dict = {}
         self.store = SnapshotStore(config.database_path)
-        self.catalog = CatalogStore(config.database_path)
+        self.storage_mode = config.storage_mode
+        if config.storage_mode == "distributed":
+            self.catalog = ClickHouseCatalogStore(config.clickhouse)
+        else:
+            self.catalog = CatalogStore(config.database_path)
+        if config.redis.get("enabled", False):
+            self.catalog = CachedCatalogStore(self.catalog, RedisJsonCache.from_config(config.redis))
 
     def initialize(self) -> None:
         self.series, quality = self.repository.load_all()

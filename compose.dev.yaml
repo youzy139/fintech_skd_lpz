@@ -1,0 +1,20 @@
+services:
+  bootstrap:
+    profiles: [full]
+  backend:
+    profiles: [full]
+  frontend:
+    profiles: [full]
+  mysql:
+    ports:
+      - "3307:3306"
+  clickhouse:
+    ports:
+      - "8123:8123"
+  redis:
+    ports:
+      - "6379:6379"
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
