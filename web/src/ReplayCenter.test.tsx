@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReplayCenter from './ReplayCenter'
 import type { ReplaySession } from './types'
 
-const session: ReplaySession = { id: 'replay-1', mode: 'local', start_date: '2024-03-04', end_date: '2024-03-06', status: 'running', speed: 1, processed_days: 0, total_days: 3, current_date: null, progress: 0, error: null, event_stats: { produced_events: 3, consumed_events: 0, duplicate_events: 0, retry_count: 0, commit_count: 0 }, latest_result: null }
+const session: ReplaySession = {
+  id: 'replay-1', run_id: 'run-1', mode: 'local', start_date: '2024-03-04', end_date: '2024-03-06', status: 'running', speed: 1, processed_days: 0, total_days: 3, current_date: null, progress: 0, error: null,
+  event_stats: { produced_events: 3, consumed_events: 0, duplicate_events: 0, retry_count: 0, commit_count: 0 },
+  timing: { engine_start_ms: 12.3, pipeline_start_ms: 4.2, last_day: { event_date: '2024-03-04', input_ms: 3.1, model_ms: 45.6, ack_ms: 0.8, total_ms: 49.5 }, processed_days: 1, total_day_ms: 49.5, average_day_ms: 49.5, max_day_ms: 49.5, pipeline: {} },
+  latest_result: null,
+}
 const result = {
   event_time: '2024-03-06', replay_time: '2024-03-06T10:00:00Z', input_start: '2024-01-01', input_end: '2024-03-06', input_records: 2, observed_assets: ['A', 'B'],
   features: { market_return: 0.01, volatility: 0.2, momentum: 0.05, correlation: 0.3, trend: 0.02, sample_count: 2 },
@@ -66,6 +71,10 @@ describe('ReplayCenter', () => {
     expect(screen.getByText('walk-forward-20240305')).toBeInTheDocument()
     expect(screen.getByText('3 / 3 个交易日')).toBeInTheDocument()
     expect(screen.getByText('当前事件日没有新增预警')).toBeInTheDocument()
+    expect(screen.getByText('运行追踪与阶段耗时')).toBeInTheDocument()
+    expect(screen.getByText('run-1')).toBeInTheDocument()
+    expect(screen.getByText('模型计算')).toBeInTheDocument()
+    expect(screen.getByText('45.6 ms')).toBeInTheDocument()
   })
 
   it('creates a Kafka-mode replay when the event channel is selected', async () => {
@@ -94,5 +103,14 @@ describe('ReplayCenter', () => {
       expect(creation).toBeDefined()
       expect(JSON.parse(String(creation?.[1]?.body))).toMatchObject({ mode: 'flink', start_date: '2024-03-04', end_date: '2024-03-06' })
     })
+    act(() => MockWebSocket.instances[0].emit({
+      type: 'replay_status',
+      session: { ...session, mode: 'flink', flink_job_id: 'job-1', savepoint_path: 'file:///savepoints/savepoint-1', timing: { ...session.timing, pipeline: { job_start_ms: 5000, job_stop_ms: 1200 } } },
+    }))
+    expect(screen.getByText('Flink 作业 ID')).toBeInTheDocument()
+    expect(screen.getByText('job-1')).toBeInTheDocument()
+    expect(screen.getByText('file:///savepoints/savepoint-1')).toBeInTheDocument()
+    expect(screen.getByText('作业与首检查点就绪')).toBeInTheDocument()
+    expect(screen.getByText('Savepoint 停止')).toBeInTheDocument()
   })
 })

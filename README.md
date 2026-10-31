@@ -116,7 +116,7 @@ MarketLens 要解决的不是“让 AI 猜明天涨还是跌”，而是：
 - SQLite 全量迁移基线重复核对通过；MySQL 元数据和 MinIO 原始对象已完成全量迁移，1,046 个对象独立回读哈希通过。
 - ClickHouse 已完成真实全量迁移与双读；新增按来源代次的在线发布后，真实研究文件连续重发通过内容摘要、计数和全局典型查询核对。
 - SQLite 与 ClickHouse 两种显式主读的五组真实 API 结果一致，两实例同日真实回放结果一致；Redis 已验证命中、版本失效和故障回源。
-- 当前后端 57 项测试、前端 10 项测试通过，后端分支覆盖率 73.27%，前端生产构建通过。
+- `v0.3.4` 当前后端 67 项测试、前端 10 项测试通过，后端分支覆盖率 73.01%，Java 干净构建和前端生产构建通过。
 - 默认八个容器服务已真实启动并完成全量导入；全部 1,046 个对象回读、Kafka/Flink 容器回放、Nginx WebSocket、真实 Chrome 和 Redis 停服回源均已验收。
 
 这些效果证明的是**数据处理、模型链路和工程可靠性**，不代表已经获得投资收益、预测准确率优势或生产级高可用能力。
@@ -130,7 +130,7 @@ MarketLens 要解决的不是“让 AI 猜明天涨还是跌”，而是：
 
 ## 当前状态
 
-当前版本为 `v0.3.3` 测试版本；阶段 A～E 的部署实现、干净源码目录与全新数据卷复验及整体验收均已完成，并已通过用户体验确认：
+当前最新版本标签为 `v0.3.3` 测试版本，`v0.3.4` 的服务治理、观测、回放正确性与性能工作正在实施；本批阶段成果已通过用户体验确认，完整版本尚未打标签。`v0.3.3` 阶段 A～E 的部署实现、干净源码目录与全新数据卷复验及整体验收均已完成，并已通过用户体验确认：
 
 - 1,046 个输入文件全部登记并导入本地 SQLite，共 1,556,492 条逻辑记录，首次全量导入无失败文件。
 - 39 个可用资产包含 314,318 条行情记录；新闻 900,704 条、科技 41,413 条、宏观日历 185,753 条、研究摘要 1,000 篇，指标工作簿 31 个 sheet 全部处理。
@@ -143,12 +143,13 @@ MarketLens 要解决的不是“让 AI 猜明天涨还是跌”，而是：
 - 生成高波动、相关性异常和状态切换预警，提供 REST、GraphQL、WebSocket 和 OpenAPI。
 - 真实历史回放按事件日期逐日读取行情，只使用当日及此前历史重新计算特征、状态和预警；支持范围选择、暂停、继续、0.5～10 倍速、重开和断线快照恢复。页面展示事件时间、实际处理时间、输入范围、模型版本与当日新增预警。
 - 回放支持本地直连、Kafka 事件和 Flink 窗口三种通道。单节点 Kafka 4.3.2 KRaft 与 `aiokafka` 已实际联通，日批次按日期作 key，消费者去重、缓存乱序、重试并在模型处理成功后手动提交连续位点。
-- Flink 2.2.1 Java 作业按事件时间水位线完成 1d 窗口、去重和迟到分流，回放结束控制事件只推进水位线、不产生行情。检查点和 Kafka 事务输出已生效，Savepoint 停止与恢复以及恢复后的 4 天一致性回放已验证；页面展示事件计数。
+- Flink 2.2.1 每次回放运行使用独立 Java 作业、消费者组和事件时间水位线，完成 1d 窗口、去重和迟到分流。后端等待作业与首检查点就绪后发送行情，结束时按作业 ID 停止并生成 Savepoint。连续运行、重开、乱序迟到、三通道一致性和 Savepoint 恢复均已验证；页面展示运行与作业证据。
+- `v0.3.4` 已拆分 REST 路由，增加请求 ID、稳定错误码、结构化日志、readiness 和进程内延迟指标；回放快照与页面增加运行 ID、Flink 作业 ID、Savepoint、模型初始化、通道初始化及逐日阶段耗时，尚未形成完整版本。
 - 首页与工作台支持双向导航、平滑过渡、锚点滚动和精确回到顶部。
 
 本地默认 SQLite，`STORAGE_MODE=distributed` 可显式切换 ClickHouse；Kafka/Flink 为单节点验证环境，独立微服务、完整权限和 LLM 助手仍未完成。Compose 已完成真实启动和核心链路验收，但这仍不是高可用或完整微服务系统。
 
-**已知性能问题：** Flink 小数据逐日回放明显慢于本地直连；ClickHouse 冷查询约 0.75–1.63 秒，当前分布式 Redis 热查询约 36–71ms，未达正式版 `<10ms` 热访问目标。真实单文件在线重发及全局核对约 30.7 秒，仍有派生刷新与全量核对开销。后续按 [v0.3.4 任务书](docs/v0.3.4-plan.md) 分阶段测量和优化，不通过牺牲一致性或容错提速。
+**已知问题：** Flink 连续回放的全局水位线缺陷已修复，但每运行独立作业会增加启动与首检查点等待，小数据逐日回放仍慢于本地。ClickHouse 冷查询约 0.75–1.63 秒，当前分布式 Redis 热查询约 36–71ms，未达正式版 `<10ms` 热访问目标。真实单文件在线重发及全局核对约 30.7 秒，仍有派生刷新与全量核对开销。后续按 [v0.3.4 任务书](docs/v0.3.4-plan.md) 分阶段测量和优化，不通过牺牲一致性或容错提速。
 
 ## 本地启动
 
@@ -225,7 +226,7 @@ KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=file:///$(pwd -W)/$KAFKA_HOME/confi
 
 ## 可选：启动 Flink 日窗口与容错
 
-需要 Java 21 和 Kafka。下载 [Flink 2.2.1](https://dlcdn.apache.org/flink/flink-2.2.1/) 到 `server/data/flink/flink-2.2.1`，下载 Maven 到 `server/data/maven/`。在仓库根目录执行：
+需要 Java 17 和 Kafka。下载 [Flink 2.2.1](https://dlcdn.apache.org/flink/flink-2.2.1/) 到 `server/data/flink/flink-2.2.1`，下载 Maven 到 `server/data/maven/`。在仓库根目录执行：
 
 ```bash
 # 编译 Java 作业；按本机 Maven 路径调整
@@ -245,18 +246,22 @@ for topic in marketlens.features.days.v1 marketlens.replay.late.v1; do
 done
 ```
 
-通过 Flink REST 上传并运行作业：
+通过 Flink REST 上传 JAR。正常回放不需要手工提交作业，后端会为每个 `run_id` 独立提交并管理生命周期：
 
 ```bash
 curl --request POST --form "jarfile=@flink/target/marketlens-flink.jar" http://127.0.0.1:8081/jars/upload
-# 用响应中的 JAR ID 替换下面的 JAR_ID
+```
+
+手工诊断时使用 Flink 2.2.1 的 `programArgsList` 数组，并把参数名和值分开；`sessionId` 与 `runId` 必填。用上传响应中的 JAR ID 替换 `JAR_ID`：
+
+```bash
 JAR_ID=替换为上传响应中的ID
 curl --request POST --header "Content-Type: application/json" \
-  --data '{"entryClass":"com.marketlens.flink.DailyWindowJob","programArgs":"--checkpointInterval=5000 --checkpointDir=file:///C:/Users/15214/Desktop/project/fintech/server/data/flink/checkpoints","parallelism":1}' \
+  --data '{"entryClass":"com.marketlens.flink.DailyWindowJob","parallelism":1,"programArgsList":["--bootstrapServers","127.0.0.1:9092","--inputTopic","marketlens.replay.days.v1","--outputTopic","marketlens.features.days.v1","--lateTopic","marketlens.replay.late.v1","--checkpointInterval","5000","--checkpointDir","file:///C:/Users/15214/Desktop/project/fintech/server/data/flink/checkpoints","--sessionId","manual-session","--runId","manual-run"]}' \
   "http://127.0.0.1:8081/jars/$JAR_ID/run"
 ```
 
-使用 `KAFKA_ENABLED=true FLINK_ENABLED=true` 启动后端，在“历史回放”选择“Flink 窗口”。作业每 5 秒检查点一次，窗口结果通过 Kafka 事务提交，后端以 `read_committed` 消费。每轮回放末尾的 `market.replay.control.v1` 只推进水位线，不进入窗口或模型。`POST /jobs/{jobid}/savepoints` 可触发 Savepoint；恢复时使用相同 JAR 和 `savepointPath`。当前 REST 配置只表示按需连接，实际可用性以作业 RUNNING、检查点和回放结果为准。
+使用 `KAFKA_ENABLED=true FLINK_ENABLED=true` 启动后端，在“历史回放”选择“Flink 窗口”。后端等待作业 RUNNING 和首个检查点后发送行情，窗口结果通过 Kafka 事务提交，后端以 `read_committed` 消费。控制事件以最后事件日期加 3 天推进本运行水位线，不进入窗口或模型。结束通过 `POST /jobs/{jobid}/stop` 生成 Savepoint；恢复时使用相同 JAR、运行参数和 `savepointPath`。当前 REST 配置只表示按需连接，实际可用性以作业、检查点和回放结果为准。
 
 ## 测试与构建
 
@@ -269,13 +274,14 @@ cd web && npm test && npm run build
 
 - [总体架构设计](docs/architecture.md)：项目架构基线与模块职责。
 - [v0.3.x 阶段计划](docs/v0.3.x-plan.md)：真实历史回放、Kafka/Flink、分布式存储的实施顺序与验收标准。
-- [v0.3.3 任务书](docs/v0.3.3-plan.md)：MySQL、ClickHouse、Redis、MinIO、数据分层血缘、迁移与 Docker Compose；阶段 A～E 及干净空卷验收已完成，等待用户体验。
+- [v0.3.3 任务书](docs/v0.3.3-plan.md)：MySQL、ClickHouse、Redis、MinIO、数据分层血缘、迁移与 Docker Compose；阶段 A～E 及干净空卷验收已完成并发布。
 - [存储契约与迁移基线](docs/storage-contracts.md)：SQLite/后续存储的统一边界、全量内容摘要和迁移核对方法。
 - [阶段 B 存储运行与验收](docs/stage-b-storage.md)：MySQL/MinIO 启动、全量迁移、幂等重跑与真实回读校验。
 - [阶段 C ClickHouse 运行与验收](docs/stage-c-clickhouse.md)：WSL 2 启动、分层 schema、全量影子迁移与真实双读结果。
 - [阶段 D Redis 运行与验收](docs/stage-d-redis.md)：热点缓存、内容版本失效、故障回源与真实 API 验证。
 - [阶段 E 部署与验收](docs/stage-e-deployment.md)：Docker/Compose、在线增量发布、主读切换、回退、干净空卷复验和后续事项。
-- [v0.3.4 任务书](docs/v0.3.4-plan.md)：服务治理、认证权限、监控展示、性能与故障恢复，包含 Flink 回放性能专项；尚未实施。
+- [v0.3.4 任务书](docs/v0.3.4-plan.md)：服务治理、认证权限、监控展示、性能与故障恢复，包含 Flink 回放性能专项；当前正在实施。
+- [v0.3.4 首批观测与基准](docs/v0.3.4-observability.md)：请求契约、路由指标、回放计时、三通道实测和连续 Flink 水位线问题。
 - [AGENTS.md](AGENTS.md)：数据口径、竞赛约束和开发注意事项。
 - 根目录的赛题 PDF 与发布 PPT：正式竞赛要求及评分依据。
 

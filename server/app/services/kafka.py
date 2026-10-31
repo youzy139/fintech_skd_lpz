@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import date
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -28,6 +29,7 @@ class KafkaReplayPipeline:
         self.processed_offsets: set[tuple[TopicPartition, int]] = set()
         self.next_offsets: dict[TopicPartition, int] = {}
         self.stats = {"produced_events": 0, "consumed_events": 0, "duplicate_events": 0, "retry_count": 0, "commit_count": 0}
+        self.timing = {"consumer_start_ms": 0.0, "producer_start_ms": 0.0, "production_ms": 0.0, "control_ms": 0.0, "consumer_wait_ms": 0.0, "commit_ms": 0.0}
 
     async def start(self) -> None:
         if not self.settings.get("enabled", False):
@@ -48,8 +50,13 @@ class KafkaReplayPipeline:
             enable_idempotence=True,
             retry_backoff_ms=self.settings.get("retry_backoff_ms", 200),
         )
+        consumer_started = monotonic()
         await self.consumer.start()
+        self.timing["consumer_start_ms"] = (monotonic() - consumer_started) * 1000
+        producer_started = monotonic()
         await self.producer.start()
+        self.timing["producer_start_ms"] = (monotonic() - producer_started) * 1000
+        production_started = monotonic()
         for event_date in self.dates:
             event = MarketDayEvent.from_batch(self.session_id, self.run_id, self.catalog.read(event_date))
             await self.producer.send_and_wait(
@@ -58,13 +65,16 @@ class KafkaReplayPipeline:
                 value=json.dumps(event.to_dict(), ensure_ascii=False).encode("utf-8"),
             )
             self.stats["produced_events"] += 1
+        self.timing["production_ms"] = (monotonic() - production_started) * 1000
         if self.settings.get("emit_end_of_input"):
+            control_started = monotonic()
             control = MarketDayEvent.end_of_input(self.session_id, self.run_id, self.dates[-1])
             await self.producer.send_and_wait(
                 self.settings.get("produce_topic", self.settings["topic"]),
                 key=control.event_date.isoformat().encode("utf-8"),
                 value=json.dumps(control.to_dict(), ensure_ascii=False).encode("utf-8"),
             )
+            self.timing["control_ms"] = (monotonic() - control_started) * 1000
 
     async def _commit_message(self, message: Any) -> None:
         partition = TopicPartition(message.topic, message.partition)
@@ -75,13 +85,16 @@ class KafkaReplayPipeline:
             self.processed_offsets.remove((partition, next_offset))
             next_offset += 1
         if next_offset != self.next_offsets[partition]:
+            commit_started = monotonic()
             await self.consumer.commit({partition: next_offset})
+            self.timing["commit_ms"] += (monotonic() - commit_started) * 1000
             self.next_offsets[partition] = next_offset
             self.stats["commit_count"] += 1
 
     async def _get_message(self) -> Any:
         max_retries = self.settings.get("consumer_max_retries", 3)
         for attempt in range(max_retries + 1):
+            wait_started = monotonic()
             try:
                 return await self.consumer.getone()
             except KafkaError as error:
@@ -89,6 +102,8 @@ class KafkaReplayPipeline:
                     raise RuntimeError("Kafka 消费在重试后仍然失败") from error
                 self.stats["retry_count"] += 1
                 await asyncio.sleep(self.settings.get("retry_backoff_ms", 200) / 1000 * (attempt + 1))
+            finally:
+                self.timing["consumer_wait_ms"] += (monotonic() - wait_started) * 1000
 
     async def next(self, expected_date: date) -> ReplayDayInput:
         if expected_date in self.buffered:

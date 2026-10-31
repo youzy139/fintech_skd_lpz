@@ -59,9 +59,13 @@ def load_config(path: Path | None = None) -> AppConfig:
         "output_topic": "marketlens.features.days.v1",
         "late_topic": "marketlens.replay.late.v1",
         "checkpoint_interval_ms": 5000,
+        "checkpoint_dir": "file:///tmp/marketlens-flink-checkpoints",
+        "request_timeout_seconds": 10,
+        "job_start_timeout_ms": 90000,
+        "job_stop_timeout_ms": 60000,
     })
     enabled("FLINK", flink)
-    override("FLINK", flink, "rest_url", "output_topic", "late_topic", "checkpoint_interval_ms")
+    override("FLINK", flink, "rest_url", "output_topic", "late_topic", "checkpoint_interval_ms", "checkpoint_dir", "request_timeout_seconds", "job_start_timeout_ms", "job_stop_timeout_ms")
     mysql = raw.get("mysql", {"enabled": False, "host": "127.0.0.1", "port": 3307, "database": "marketlens", "user": "root", "password": ""})
     enabled("MYSQL", mysql)
     override("MYSQL", mysql, "host", "port", "database", "user")

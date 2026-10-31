@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import asdict
 from datetime import date
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
 import pandas as pd
 
 from app.core.config import AppConfig
+from app.core.observability import log_event
+from app.services.flink import FlinkReplayPipeline
 from app.services.kafka import KafkaReplayPipeline
 from market_core.domain.replay import AssetObservation, ReplayClock, ReplayDayInput, ReplayDayResult
 from market_core.models.replay import HistoricalMarketReplay
+
+replay_logger = logging.getLogger("marketlens.replay")
 
 
 class LocalReplayPipeline:
@@ -72,19 +78,38 @@ class ReplaySession:
         self.config = config
         self.engine: HistoricalMarketReplay | None = None
         self.pipeline = None
+        self.run_id: str | None = None
+        self.flink_job_id: str | None = None
+        self.savepoint_path: str | None = None
         self.event_stats = {"produced_events": 0, "consumed_events": 0, "duplicate_events": 0, "retry_count": 0, "commit_count": 0}
         self.latest_result: ReplayDayResult | None = None
         self.task: asyncio.Task | None = None
         self.lock = asyncio.Lock()
         self.resumed = asyncio.Event()
         self.subscribers: set[asyncio.Queue] = set()
+        self.pipeline_timing: dict[str, float] = {}
+        self.engine_start_ms: float | None = None
+        self.pipeline_start_ms: float | None = None
+        self.last_day_timing: dict[str, Any] | None = None
+        self.timed_days = 0
+        self.total_day_ms = 0.0
+        self.max_day_ms = 0.0
 
     def snapshot(self) -> dict[str, Any]:
         total = len(self.clock.dates)
         if self.pipeline:
             self.event_stats = dict(self.pipeline.stats)
+            self.pipeline_timing = dict(getattr(self.pipeline, "timing", {}))
+            self.flink_job_id = getattr(self.pipeline, "flink_job_id", None)
+            self.savepoint_path = getattr(self.pipeline, "savepoint_path", None)
+        last_day = None
+        if self.last_day_timing:
+            last_day = {key: round(value, 3) if isinstance(value, float) else value for key, value in self.last_day_timing.items()}
         return {
             "id": self.id,
+            "run_id": self.run_id,
+            "flink_job_id": self.flink_job_id,
+            "savepoint_path": self.savepoint_path,
             "mode": self.mode,
             "start_date": self.clock.dates[0].isoformat(),
             "end_date": self.clock.dates[-1].isoformat(),
@@ -96,6 +121,16 @@ class ReplaySession:
             "progress": self.clock.position / total,
             "error": self.clock.error,
             "event_stats": dict(self.event_stats),
+            "timing": {
+                "engine_start_ms": round(self.engine_start_ms, 3) if self.engine_start_ms is not None else None,
+                "pipeline_start_ms": round(self.pipeline_start_ms, 3) if self.pipeline_start_ms is not None else None,
+                "last_day": last_day,
+                "processed_days": self.timed_days,
+                "total_day_ms": round(self.total_day_ms, 3),
+                "average_day_ms": round(self.total_day_ms / self.timed_days, 3) if self.timed_days else None,
+                "max_day_ms": round(self.max_day_ms, 3),
+                "pipeline": {key: round(value, 3) for key, value in self.pipeline_timing.items()},
+            },
             "latest_result": asdict(self.latest_result) if self.latest_result else None,
         }
 
@@ -145,8 +180,18 @@ class ReplaySession:
             self.clock.restart()
             self.engine = None
             self.pipeline = None
+            self.run_id = None
+            self.flink_job_id = None
+            self.savepoint_path = None
             self.event_stats = {key: 0 for key in self.event_stats}
             self.latest_result = None
+            self.pipeline_timing = {}
+            self.engine_start_ms = None
+            self.pipeline_start_ms = None
+            self.last_day_timing = None
+            self.timed_days = 0
+            self.total_day_ms = 0.0
+            self.max_day_ms = 0.0
             await self.status_message("replay_reset")
         return await self.start()
 
@@ -155,16 +200,22 @@ class ReplaySession:
         try:
             if self.mode == "flink":
                 settings = {**self.config.kafka, "topic": self.config.flink["output_topic"], "produce_topic": self.config.kafka["topic"], "read_committed": True, "emit_end_of_input": True}
-                pipeline = KafkaReplayPipeline(self.id, self.clock.dates, self.catalog, settings)
+                pipeline = FlinkReplayPipeline(self.id, self.clock.dates, self.catalog, settings, self.config.flink)
             elif self.mode == "kafka":
                 pipeline = KafkaReplayPipeline(self.id, self.clock.dates, self.catalog, self.config.kafka)
             else:
                 pipeline = LocalReplayPipeline(self.clock.dates, self.catalog)
             self.pipeline = pipeline
+            self.run_id = getattr(pipeline, "run_id", uuid4().hex)
             async with self.lock:
                 if self.engine is None:
+                    engine_started = monotonic()
                     self.engine = await asyncio.to_thread(HistoricalMarketReplay, self.catalog.series, self.config.model, self.config.alerts, self.clock.dates[0])
+                    self.engine_start_ms = (monotonic() - engine_started) * 1000
+                pipeline_started = monotonic()
                 await pipeline.start()
+                self.pipeline_start_ms = (monotonic() - pipeline_started) * 1000
+                self.pipeline_timing = dict(getattr(pipeline, "timing", {}))
             while self.clock.status in {"running", "paused"}:
                 if self.clock.status == "paused":
                     await self.resumed.wait()
@@ -173,12 +224,38 @@ class ReplaySession:
                     if self.clock.status == "paused":
                         continue
                     event_date = self.clock.advance()
+                    day_started = monotonic()
                     batch = await pipeline.next(event_date)
+                    input_finished = monotonic()
                     self.latest_result = await asyncio.to_thread(self.engine.advance, batch)
+                    model_finished = monotonic()
                     await pipeline.ack(batch)
+                    day_finished = monotonic()
+                    self.last_day_timing = {
+                        "event_date": event_date.isoformat(),
+                        "input_ms": (input_finished - day_started) * 1000,
+                        "model_ms": (model_finished - input_finished) * 1000,
+                        "ack_ms": (day_finished - model_finished) * 1000,
+                        "total_ms": (day_finished - day_started) * 1000,
+                    }
+                    self.timed_days += 1
+                    self.total_day_ms += self.last_day_timing["total_ms"]
+                    self.max_day_ms = max(self.max_day_ms, self.last_day_timing["total_ms"])
+                    self.pipeline_timing = dict(getattr(pipeline, "timing", {}))
                     if self.clock.position == len(self.clock.dates):
                         self.clock.complete()
                     await self.publish({"type": "replay_day", "session": self.snapshot(), "result": asdict(self.latest_result)})
+                    log_event(
+                        replay_logger,
+                        "replay_day_completed",
+                        session_id=self.id,
+                        run_id=self.run_id,
+                        mode=self.mode,
+                        event_time=event_date.isoformat(),
+                        input_records=self.latest_result.input_records,
+                        model_version=self.latest_result.model_version,
+                        **{key: round(value, 3) for key, value in self.last_day_timing.items() if isinstance(value, float)},
+                    )
                 if self.clock.status == "running":
                     await asyncio.sleep(self.config.replay["interval_ms"] / 1000 / self.clock.speed)
         except asyncio.CancelledError:
@@ -191,7 +268,18 @@ class ReplaySession:
         finally:
             if pipeline:
                 self.event_stats = dict(pipeline.stats)
-                await pipeline.close()
+                try:
+                    await pipeline.close()
+                except Exception as error:
+                    async with self.lock:
+                        self.clock.status = "failed"
+                        self.clock.error = f"回放通道关闭失败：{error}"
+                        await self.status_message("replay_error")
+                finally:
+                    self.pipeline_timing = dict(getattr(pipeline, "timing", {}))
+                    self.flink_job_id = getattr(pipeline, "flink_job_id", None)
+                    self.savepoint_path = getattr(pipeline, "savepoint_path", None)
+                await self.status_message()
             self.pipeline = None
 
     async def close(self) -> None:

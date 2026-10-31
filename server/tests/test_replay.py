@@ -161,3 +161,13 @@ def test_single_day_completion_always_includes_the_daily_result():
         assert current["status"] == "completed"
         assert current["latest_result"] is not None
         assert current["latest_result"]["event_time"] == day
+        assert current["run_id"]
+        timing = current["timing"]
+        assert timing["processed_days"] == 1
+        assert timing["engine_start_ms"] >= 0
+        assert timing["pipeline_start_ms"] >= 0
+        assert timing["last_day"]["event_date"] == day
+        assert timing["last_day"]["input_ms"] >= 0
+        assert timing["last_day"]["model_ms"] >= 0
+        assert timing["last_day"]["ack_ms"] >= 0
+        assert timing["last_day"]["total_ms"] >= timing["last_day"]["model_ms"]

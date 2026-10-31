@@ -176,11 +176,19 @@ LLM 不得直接修改原始行情、特征、状态标签、已触发预警或�
 ### Flink v0.3.2 窗口与容错
 
 - `flink/` 是独立 Java 17 源码和 Maven 工程，运行环境为 Flink 2.2.1 + Kafka Connector 5.0.0，不改变 `market_core` 的算法边界。
+- 每次 `run_id` 由后端通过 Flink REST 启动独立作业和消费者组。source 先过滤当前会话与运行，再分配事件时间和水位线，避免其他历史回放或旧控制事件推进本运行的时间。后端等待作业进入 RUNNING 且首个检查点完成后才生产行情，防止 latest 位点尚未建立时丢失首日。
 - Kafka source 使用事件时间和最多 2 天乱序的水位线，1d 滚动事件时间窗口按 `session_id + run_id + event_date` 分组，允许迟到 2 天，更晚事件写入 `marketlens.replay.late.v1`。不同频率或没有观测的资产日期不补齐。
 - 窗口按 `event_id` 去重，同日不同 ID 冲突和同资产重复直接报错；输出保留原始观测并增加窗口起止、输入记录数和资产数。日窗口不计算跨资产均值，滚动收益、波动率、动量、相关性及 PCA/KMeans 继续由 Python 执行。
-- 每轮回放结束发送 `market.replay.control.v1`，控制事件以实际处理时间推进水位线，在窗口前过滤。它解决有限历史结束时窗口不关闭的问题，不构造额外行情或交易日。
-- 每 5 秒执行 Exactly-Once 检查点，Kafka sink 使用事务输出；后端以 `read_committed` 读取 `marketlens.features.days.v1`。算子具有稳定 UID，检查点和 Savepoint 均保存在项目运行目录。
-- 已通过 REST 完成“停止并保存 Savepoint → 从保存状态恢复 → 新一轮 4 天回放”。当前仅为单 JobManager/TaskManager 验证环境，不是高可用集群，也未形成竞赛性能验收报告。
+- 每轮回放结束发送 `market.replay.control.v1`。控制事件以最后事件日期加 3 天作为内部控制时间，在最多 2 天乱序口径下推进水位线并关闭最后窗口；它在窗口前过滤，不构造额外行情或交易日，也不把历史行情时间改为处理时间。
+- 每 5 秒执行 Exactly-Once 检查点，Kafka sink 使用事务输出；后端以 `read_committed` 读取 `marketlens.features.days.v1`。算子具有稳定 UID，检查点和 Savepoint 均保存在项目运行目录。正常结束只按作业 ID 停止本运行并生成 Savepoint，不取消其他会话。
+- 已验证同一集群连续运行、相同与不同日期范围、暂停继续、同会话重开、四日三通道 `1e-12` 容差一致性、乱序去重、超迟分流和 Savepoint 恢复。当前仅为单 JobManager/TaskManager 验证环境，不是高可用集群，也未形成竞赛性能验收报告。
+
+### v0.3.4 首批契约与观测（实施中）
+
+- REST 已按 system、market、data、replay 提取到 `server/app/api/`，保持既有 URL 与 `detail` 兼容；错误响应新增稳定 `error.code` 和 `error.request_id`，成功与错误响应均返回 `X-Request-ID`。GraphQL 和 WebSocket 仍由主应用组装，不代表已经拆成独立微服务。
+- JSON 请求日志记录路由模板、状态码、耗时和请求 ID，不记录查询参数或正文。`/api/system/metrics` 提供当前进程的路由 p50/p95/p99、错误数、WebSocket 连接和回放会话数；它不是跨实例聚合指标。`/api/health` 保持存活检查，`/api/health/ready` 检查市场快照和目录可读性。
+- 回放快照增加 `run_id`、`flink_job_id`、`savepoint_path` 和 `timing`，分别记录模型初始化、通道初始化、逐日输入等待、模型计算、结果确认，以及 Kafka 生产、消费等待、位点提交、Flink 作业就绪和 Savepoint 停止耗时。回放页只展示真实测量值，无数据时显示未知。
+- 首批基准发现同一 Flink 作业连续回放的全局水位线缺陷，现已通过每运行独立作业和过滤后水位线修复。连续两轮均产出全部正常消息且迟到消息为 0；真实 Chrome 已核对最终运行面板。独立作业增加启动与首检查点等待，小数据下仍慢于本地，性能优化不能以恢复共享全局水位线为代价。
 
 ## 8. 当前仓库边界
 
@@ -190,10 +198,10 @@ market_core/
   ingestion/           # 资产、Excel、CSV、新闻与 Markdown 适配器
   models/              # 特征、walk-forward 状态模型与预警
 server/
-  app/api/             # API 模块边界
-  app/core/            # 服务配置
-  app/services/        # 应用组装、全量导入、SQLite 目录与快照
-  app/main.py          # REST、GraphQL、WebSocket 入口
+  app/api/             # system、market、data、replay 路由与请求契约
+  app/core/            # 服务配置、请求追踪与进程内指标
+  app/services/        # 应用组装、存储、回放计时与性能基准
+  app/main.py          # GraphQL、WebSocket、路由与中间件组装
   tests/               # 核心、导入与接口测试
   config.example.json  # 无密钥配置模板
   config.json          # 本地私有配置，Git 忽略

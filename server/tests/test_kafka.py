@@ -158,6 +158,9 @@ def test_producer_uses_date_keys_and_manual_consumer_commit(monkeypatch):
         await pipe.close()
         assert [item[1].decode() for item in producer.sent] == ["2024-01-01", "2024-01-02"]
         assert pipe.stats["produced_events"] == 2
+        assert pipe.timing["consumer_start_ms"] >= 0
+        assert pipe.timing["producer_start_ms"] >= 0
+        assert pipe.timing["production_ms"] >= 0
     asyncio.run(scenario())
 
 

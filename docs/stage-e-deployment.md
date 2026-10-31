@@ -11,7 +11,7 @@
 - `minio/Dockerfile`：官方历史镜像不可拉取，因此按既有本地验收方式，从 `RELEASE.2025-09-07T16-13-09Z` 固定源码构建，非 root 运行。
 - `compose.yaml`：MySQL、ClickHouse、Redis、MinIO、Kafka、初始化、后端和前端八个默认服务。
 - `compose.dev.yaml`：仅基础设施，Python/React 可继续本地热更新；Flink 不是默认开发依赖。
-- `compose.flink.yaml`：可选 JobManager、TaskManager、Kafka 主题初始化和一次性作业提交；自动创建输入、输出和迟到主题并设置 `retention.ms=-1`，再启动 Flink，避免空卷或重建后因主题不存在反复重启。
+- `compose.flink.yaml`：可选 JobManager、TaskManager、Kafka 主题初始化和一次性 JAR 上传；自动创建输入、输出和迟到主题并设置 `retention.ms=-1`。后端按回放运行通过 REST 启动独立作业，不再由 Compose 启动一个共享全局水位线作业。
 - `deploy/config/container.json`、`.env.example`：无密钥配置与空模板；真实 `.env` 不进入 Git 或镜像。
 - `server/app/services/prepare_container_data.py`：为 Linux 容器生成短文件名研究摘要副本，保留正文和原始名称元数据。
 
@@ -97,7 +97,7 @@ python -m app.services.online_publish --verify-only
 
 ### 全量数据与容器
 
-- 八个默认服务均通过健康检查，后端和 Nginx 前端可由宿主机访问；可选 Flink 作业为 `RUNNING`。恢复实例时发现缺失 Kafka 主题会导致作业反复重启，已补自动主题初始化并重建验证，随后本地/Flink 同日回放再次一致。
+- 八个默认服务均通过健康检查，后端和 Nginx 前端可由宿主机访问；可选 Flink 的 JAR 上传与按运行动态作业已验收。恢复实例时发现缺失 Kafka 主题会导致作业反复重启，已补自动主题初始化并重建验证，随后本地/Flink 同日回放再次一致。
 - 最终口径为 1,046 个文件、1,556,492 条逻辑记录、1,000 篇研究摘要，导入错误为 0；市场快照为 3,340 个状态日、20,040 条状态日特征和 1,127 条预警。
 - `online_publish --verify-only` 已对 MySQL、ClickHouse、SQLite 和全部 1,046 个 MinIO 原始对象独立回读核对通过。
 - 停止并重建全部容器后，未变化文件跳过重导，命名卷数据保留。ClickHouse 25.8.4.13 与本地 26.11 CI 构建的结果口径一致。
@@ -130,4 +130,4 @@ python -m app.services.online_publish --verify-only
 1. 性能仍不能按正式版目标宣称达标：既有 ClickHouse 冷查询和 Redis 热查询测量偏慢，共享客户端串行化后需要重新测量 p50/p95/p99、并发和资源占用。
 2. 长文件名预处理是 Windows 原始数据的必要步骤；正式交付必须保留清晰说明并验证用户从准备数据到启动的完整流程。
 3. 微服务、完整认证授权、分布式限流、LLM 助手、宏观/文本进入分析或证据链仍未实现，属于后续版本，不影响本次部署事实，但意味着 `v1.0.0` 尚不能发布。
-4. 用户已确认体验并同意发布 `v0.3.3`；`v0.3.4` 按用户要求暂缓，不在本次发布中开始实施。
+4. 用户已确认体验并同意发布 `v0.3.3`；后续 `v0.3.4` 首批契约、观测和性能基线另见 `docs/v0.3.4-observability.md`。

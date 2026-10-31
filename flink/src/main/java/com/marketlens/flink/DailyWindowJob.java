@@ -28,7 +28,6 @@ import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.apache.flink.util.ParameterTool;
-import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -44,6 +43,9 @@ public class DailyWindowJob {
         String inputTopic = params.get("inputTopic", "marketlens.replay.days.v1");
         String outputTopic = params.get("outputTopic", "marketlens.features.days.v1");
         String lateTopic = params.get("lateTopic", "marketlens.replay.late.v1");
+        String sessionId = params.getRequired("sessionId");
+        String runId = params.getRequired("runId");
+        String groupId = params.get("groupId", "marketlens-flink-" + runId);
         long checkpointInterval = params.getLong("checkpointInterval", 5000L);
         String checkpointDir = params.get("checkpointDir", "file:///" + System.getProperty("user.dir").replace("\\", "/") + "/server/data/flink/checkpoints");
 
@@ -60,8 +62,8 @@ public class DailyWindowJob {
         KafkaSource<MarketDayEvent> source = KafkaSource.<MarketDayEvent>builder()
                 .setBootstrapServers(brokers)
                 .setTopics(inputTopic)
-                .setGroupId("marketlens-flink-day-window-v1")
-                .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST))
+                .setGroupId(groupId)
+                .setStartingOffsets(OffsetsInitializer.latest())
                 .setValueOnlyDeserializer(new MarketDayEventDeserializer())
                 .setProperty("commit.offsets.on.checkpoint", "true")
                 .setProperty("enable.auto.commit", "false")
@@ -69,15 +71,19 @@ public class DailyWindowJob {
 
         WatermarkStrategy<MarketDayEvent> watermarks = WatermarkStrategy
                 .<MarketDayEvent>forBoundedOutOfOrderness(Duration.ofDays(2))
-                .withTimestampAssigner((SerializableTimestampAssigner<MarketDayEvent>) (event, timestamp) ->
-                        "market.replay.control.v1".equals(event.eventType)
-                                ? Instant.parse(event.replayTime).toEpochMilli()
-                                : Instant.parse(event.eventTime + "T00:00:00Z").toEpochMilli())
+                .withTimestampAssigner((SerializableTimestampAssigner<MarketDayEvent>) (event, timestamp) -> {
+                    Instant eventTime = Instant.parse(event.eventTime + "T00:00:00Z");
+                    return ("market.replay.control.v1".equals(event.eventType)
+                            ? eventTime.plus(Duration.ofDays(3))
+                            : eventTime).toEpochMilli();
+                })
                 .withIdleness(Duration.ofSeconds(30));
 
         OutputTag<MarketDayEvent> lateEvents = new OutputTag<>("late-market-days") {};
         SingleOutputStreamOperator<MarketDayEvent> windows = env
-                .fromSource(source, watermarks, "Market day Kafka source").uid("market-day-source")
+                .fromSource(source, WatermarkStrategy.noWatermarks(), "Market day Kafka source").uid("market-day-source")
+                .filter(event -> sessionId.equals(event.sessionId) && runId.equals(event.runId)).uid("current-run-only")
+                .assignTimestampsAndWatermarks(watermarks).uid("run-event-time")
                 .filter(event -> "market.replay.day.v1".equals(event.eventType)).uid("market-day-only")
                 .keyBy(event -> event.sessionId + "|" + event.runId + "|" + event.eventTime)
                 .window(TumblingEventTimeWindows.of(Duration.ofDays(1)))
@@ -86,12 +92,12 @@ public class DailyWindowJob {
                 .process(new DailyDedupWindow()).uid("daily-dedup-window");
 
         DataStream<String> output = windows.map(new JsonMapper()).uid("window-json");
-        output.sinkTo(kafkaSink(brokers, outputTopic, "marketlens-day-window-v1-")).uid("window-sink");
+        output.sinkTo(kafkaSink(brokers, outputTopic, "marketlens-day-window-v1-" + runId + "-")).uid("window-sink");
         windows.getSideOutput(lateEvents)
                 .map(new JsonMapper()).uid("late-json")
-                .sinkTo(kafkaSink(brokers, lateTopic, "marketlens-late-window-v1-")).uid("late-sink");
+                .sinkTo(kafkaSink(brokers, lateTopic, "marketlens-late-window-v1-" + runId + "-")).uid("late-sink");
 
-        env.execute("MarketLens event-time daily windows");
+        env.execute("MarketLens event-time daily windows " + sessionId + "/" + runId);
     }
 
     private static KafkaSink<String> kafkaSink(String brokers, String topic, String transactionalPrefix) {

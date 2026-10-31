@@ -37,7 +37,9 @@ class MarketServiceAssets:
         return [{"code": item.meta.code, "name": item.meta.name} for item in self.series]
 
     def asset_series(self, code, limit):
-        item = self.series[0]
+        item = next((entry for entry in self.series if entry.meta.code == code), None)
+        if item is None:
+            raise KeyError(code)
         return {"code": code, "points": [{"date": day.strftime("%Y-%m-%d"), "value": value} for day, value in zip(item.frame["date"], item.frame["value"])]}
 
 
@@ -89,3 +91,40 @@ def test_source_catalog_and_graphql_summary():
         assert http.get("/api/data/records?tags=1&tags=2&tags=3&tags=4&tags=5&tags=6").status_code == 422
         response = http.post("/graphql", json={"query": "{ sourceSummary }"})
         assert response.json()["data"]["sourceSummary"]["imported_files"] == 1
+
+
+def test_request_ids_error_contract_readiness_and_metrics():
+    with client() as http:
+        health = http.get("/api/health", headers={"X-Request-ID": "trace.test-1"})
+        assert health.headers["X-Request-ID"] == "trace.test-1"
+        missing = http.get("/api/assets/missing/series")
+        assert missing.status_code == 404
+        assert missing.json()["detail"] == "资产不存在"
+        assert missing.json()["error"]["code"] == "not_found"
+        assert missing.json()["error"]["request_id"] == missing.headers["X-Request-ID"]
+        invalid = http.get("/api/data/records?limit=0")
+        assert invalid.status_code == 422
+        assert invalid.json()["error"]["code"] == "validation_error"
+        ready = http.get("/api/health/ready")
+        assert ready.status_code == 200
+        assert ready.json()["checks"]["catalog"]["records"] == 2
+        metrics = http.get("/api/system/metrics").json()
+        assert metrics["scope"] == "process"
+        assert metrics["request_count"] >= 4
+        health_metrics = next(item for item in metrics["routes"] if item["route"] == "/api/health")
+        assert health_metrics["p50_ms"] >= 0
+        assert health_metrics["p95_ms"] >= health_metrics["p50_ms"]
+
+
+def test_internal_errors_do_not_leak_implementation_details():
+    service = fake_service()
+
+    def fail_summary():
+        raise RuntimeError("private implementation detail")
+    service.source_summary = fail_summary
+    with TestClient(create_app(service, initialize=False), raise_server_exceptions=False) as http:
+        response = http.get("/api/data/summary")
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "internal_error"
+        assert "private implementation detail" not in response.text
+        assert http.get("/api/health/ready").status_code == 503

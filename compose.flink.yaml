@@ -38,7 +38,7 @@ services:
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
-        taskmanager.numberOfTaskSlots: 2
+        taskmanager.numberOfTaskSlots: ${FLINK_TASK_SLOTS:-8}
         state.checkpoints.dir: file:///opt/flink/checkpoints
     volumes:
       - flink-checkpoints:/opt/flink/checkpoints
@@ -63,24 +63,13 @@ services:
   flink-submit:
     <<: *flink-image
     command:
-      - flink
-      - run
-      - -d
-      - -m
-      - jobmanager:8081
-      - /opt/marketlens/marketlens-flink.jar
-      - --bootstrapServers
-      - kafka:9092
-      - --inputTopic
-      - marketlens.replay.days.v1
-      - --outputTopic
-      - marketlens.features.days.v1
-      - --lateTopic
-      - marketlens.replay.late.v1
-      - --checkpointInterval
-      - "5000"
-      - --checkpointDir
-      - file:///opt/flink/checkpoints
+      - /bin/bash
+      - -c
+      - |
+        set -eu
+        curl --fail --silent --show-error --request POST \
+          --form "jarfile=@/opt/marketlens/marketlens-flink.jar" \
+          http://jobmanager:8081/jars/upload
     depends_on:
       kafka-init: {condition: service_completed_successfully}
       jobmanager: {condition: service_healthy}

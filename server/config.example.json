@@ -32,7 +32,11 @@
     "rest_url": "http://127.0.0.1:8081",
     "output_topic": "marketlens.features.days.v1",
     "late_topic": "marketlens.replay.late.v1",
-    "checkpoint_interval_ms": 5000
+    "checkpoint_interval_ms": 5000,
+    "checkpoint_dir": "file:///tmp/marketlens-flink-checkpoints",
+    "request_timeout_seconds": 10,
+    "job_start_timeout_ms": 90000,
+    "job_stop_timeout_ms": 60000
   },
   "mysql": {
     "enabled": false,
