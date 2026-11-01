@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import type { FlinkStatus, KafkaStatus, ReplayCalendar, ReplaySession } from './types'
+import type { FlinkStatus, KafkaStatus, ReplayCalendar, ReplayResultsPage, ReplaySession } from './types'
 
 const statusNames = { pending: '待开始', running: '运行中', paused: '已暂停', completed: '已完成', failed: '失败' }
+const recoveryNames = { none: '无需恢复', paused: '可恢复暂停', rebuilding: '正在重建模型', completed: '恢复完成', failed: '恢复失败' }
 const featureNames: Record<string, string> = { market_return: '市场收益', volatility: '年化波动率', momentum: '中期动量', correlation: '资产相关性', trend: '短期趋势', sample_count: '有效资产数' }
 const speeds = [0.5, 1, 2, 5, 10]
 const pipelineNames: Record<string, string> = { consumer_start_ms: '消费连接启动', producer_start_ms: '生产连接启动', production_ms: '事件生产', control_ms: '控制事件发送', consumer_wait_ms: '消费与窗口等待', commit_ms: '位点提交累计', job_start_ms: '作业与首检查点就绪', job_stop_ms: 'Savepoint 停止' }
 
-type ReplayMessage = { type: string; session: ReplaySession }
+type ReplayMessage = { type: string; sequence?: number; session: ReplaySession }
 
 function post<T>(path: string, body?: unknown) {
   return api<T>(path, undefined, { method: 'POST', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
@@ -28,6 +29,8 @@ export default function ReplayCenter() {
   const [busy, setBusy] = useState(false)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState('')
+  const lastSequence = useRef(0)
+  const replayGeneration = useRef(0)
 
   useEffect(() => {
     Promise.all([api<ReplayCalendar>('/api/replay/calendar'), api<ReplaySession | null>('/api/replay/sessions/current'), api<KafkaStatus>('/api/kafka/status'), api<FlinkStatus>('/api/flink/status')])
@@ -46,16 +49,69 @@ export default function ReplayCenter() {
 
   useEffect(() => {
     if (!session) return
+    const sessionId = session.id
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/replay/${session.id}`)
-    socket.onopen = () => setConnected(true)
-    socket.onmessage = event => {
-      const message = JSON.parse(event.data) as ReplayMessage
-      setSession(message.session)
+    let disposed = false
+    let socket: WebSocket | null = null
+    let reconnect: ReturnType<typeof setTimeout> | undefined
+    lastSequence.current = 0
+    replayGeneration.current += 1
+    const generation = replayGeneration.current
+    setConnected(false)
+
+    async function backfill() {
+      try {
+        let after = lastSequence.current
+        while (!disposed && generation === replayGeneration.current) {
+          const page = await api<ReplayResultsPage>(`/api/replay/sessions/${sessionId}/results?after=${after}&limit=100`)
+          for (const item of page.results) {
+            if (item.sequence <= lastSequence.current || generation !== replayGeneration.current) continue
+            lastSequence.current = item.sequence
+            setSession(current => current?.id === sessionId ? { ...current, latest_sequence: item.sequence, latest_result: item.result, processed_days: Math.max(current.processed_days, item.sequence), current_date: item.event_date, progress: item.sequence / current.total_days } : current)
+          }
+          if (!page.has_more) break
+          after = page.next_sequence
+        }
+      } catch (reason) {
+        if (!disposed) setError(reason instanceof Error ? reason.message : '回放结果补拉失败')
+      }
     }
-    socket.onclose = () => setConnected(false)
-    socket.onerror = () => setError('回放推送连接中断，控制接口仍可使用')
-    return () => socket.close()
+
+    function connect() {
+      if (disposed) return
+      socket = new WebSocket(`${protocol}//${window.location.host}/ws/replay/${sessionId}`)
+      socket.onopen = () => {
+        if (disposed) return
+        setConnected(true)
+        void backfill()
+      }
+      socket.onmessage = event => {
+        const message = JSON.parse(event.data) as ReplayMessage
+        if (message.type === 'replay_reset') {
+          replayGeneration.current += 1
+          lastSequence.current = 0
+        }
+        if (message.type === 'replay_day') {
+          const sequence = message.sequence ?? message.session.latest_sequence ?? 0
+          if (sequence && sequence <= lastSequence.current) return
+          if (sequence) lastSequence.current = sequence
+        }
+        setSession(message.session)
+      }
+      socket.onclose = () => {
+        if (disposed) return
+        setConnected(false)
+        reconnect = setTimeout(connect, 1000)
+      }
+      socket.onerror = () => setError('回放推送连接中断，将自动重连并补拉结果')
+    }
+    connect()
+    return () => {
+      disposed = true
+      replayGeneration.current += 1
+      if (reconnect) clearTimeout(reconnect)
+      socket?.close()
+    }
   }, [session?.id])
 
   async function perform(action: () => Promise<ReplaySession>) {
@@ -102,7 +158,7 @@ export default function ReplayCenter() {
       <p>事件日期表示数据原本发生的日期；播放速度只改变到达间隔，不改变窗口、训练数据或计算结果。</p>
     </section>
     {session && <div className="replay-event-stats"><span>通道 <b>{session.mode === 'flink' ? 'Flink' : session.mode === 'kafka' ? 'Kafka' : '本地直连'}</b></span><span>已生产 <b>{session.event_stats.produced_events}</b></span><span>已消费 <b>{session.event_stats.consumed_events}</b></span><span>重复跳过 <b>{session.event_stats.duplicate_events}</b></span><span>消费重试 <b>{session.event_stats.retry_count}</b></span><span>位点提交 <b>{session.event_stats.commit_count}</b></span>{session.mode === 'flink' && flinkStatus ? <small title={flinkStatus.rest_url}>{flinkStatus.output_topic} · 检查点 {flinkStatus.checkpoint_interval_ms}ms</small> : session.mode === 'kafka' && kafkaStatus ? <small title={kafkaStatus.bootstrap_servers}>{kafkaStatus.topic} · {kafkaStatus.topic_partitions} 个分区</small> : null}</div>}
-    {session?.timing && <section className="panel replay-timing-panel"><div className="panel-head"><div><h2>运行追踪与阶段耗时</h2><p>来自真实处理过程；逐日耗时不包含人为设置的播放间隔</p></div></div><dl className="replay-facts"><div><dt>会话 ID</dt><dd>{session.id}</dd></div><div><dt>运行 ID</dt><dd>{session.run_id ?? '待分配'}</dd></div>{session.mode === 'flink' && <><div><dt>Flink 作业 ID</dt><dd>{session.flink_job_id ?? '待分配'}</dd></div><div><dt>Savepoint</dt><dd>{session.savepoint_path ?? '运行停止后生成'}</dd></div></>}<div><dt>模型初始化</dt><dd>{milliseconds(session.timing.engine_start_ms)}</dd></div><div><dt>通道初始化</dt><dd>{milliseconds(session.timing.pipeline_start_ms)}</dd></div><div><dt>最近一日总耗时</dt><dd>{milliseconds(session.timing.last_day?.total_ms)}</dd></div><div><dt>逐日平均耗时</dt><dd>{milliseconds(session.timing.average_day_ms)}</dd></div></dl>{session.timing.last_day ? <div className="replay-event-stats" aria-label="最近一日阶段耗时"><span>输入等待 <b>{milliseconds(session.timing.last_day.input_ms)}</b></span><span>模型计算 <b>{milliseconds(session.timing.last_day.model_ms)}</b></span><span>结果确认 <b>{milliseconds(session.timing.last_day.ack_ms)}</b></span><span>事件日期 <b>{session.timing.last_day.event_date}</b></span></div> : <div className="empty">尚未产生逐日计时</div>}{Object.keys(session.timing.pipeline).length > 0 && <div className="replay-event-stats" aria-label="通道累计耗时">{Object.entries(session.timing.pipeline).map(([key, value]) => <span key={key}>{pipelineNames[key] ?? key} <b>{milliseconds(value)}</b></span>)}</div>}</section>}
+    {session?.timing && <section className="panel replay-timing-panel"><div className="panel-head"><div><h2>运行追踪与阶段耗时</h2><p>来自真实处理过程；逐日耗时不包含人为设置的播放间隔</p></div></div><dl className="replay-facts"><div><dt>会话 ID</dt><dd>{session.id}</dd></div><div><dt>运行 ID</dt><dd>{session.run_id ?? '待分配'}</dd></div><div><dt>结果序列</dt><dd>{session.latest_sequence ?? 0}</dd></div>{session.recovery && session.recovery.state !== 'none' && <><div><dt>恢复状态</dt><dd>{recoveryNames[session.recovery.state]} · 第 {session.recovery.count} 次</dd></div><div><dt>模型重建耗时</dt><dd>{milliseconds(session.recovery.rebuild_ms)}</dd></div></>}{session.mode === 'flink' && <><div><dt>Flink 作业 ID</dt><dd>{session.flink_job_id ?? '待分配'}</dd></div><div><dt>Savepoint</dt><dd>{session.savepoint_path ?? '运行停止后生成'}</dd></div></>}<div><dt>模型初始化</dt><dd>{milliseconds(session.timing.engine_start_ms)}</dd></div><div><dt>通道初始化</dt><dd>{milliseconds(session.timing.pipeline_start_ms)}</dd></div><div><dt>最近一日总耗时</dt><dd>{milliseconds(session.timing.last_day?.total_ms)}</dd></div><div><dt>逐日平均耗时</dt><dd>{milliseconds(session.timing.average_day_ms)}</dd></div></dl>{session.timing.last_day ? <div className="replay-event-stats" aria-label="最近一日阶段耗时"><span>输入等待 <b>{milliseconds(session.timing.last_day.input_ms)}</b></span><span>模型计算 <b>{milliseconds(session.timing.last_day.model_ms)}</b></span><span>结果确认 <b>{milliseconds(session.timing.last_day.ack_ms)}</b></span><span>事件日期 <b>{session.timing.last_day.event_date}</b></span></div> : <div className="empty">尚未产生逐日计时</div>}{Object.keys(session.timing.pipeline).length > 0 && <div className="replay-event-stats" aria-label="通道累计耗时">{Object.entries(session.timing.pipeline).map(([key, value]) => <span key={key}>{pipelineNames[key] ?? key} <b>{milliseconds(value)}</b></span>)}</div>}</section>}
     {result ? <>
       <div className="metrics">
         <div className="metric featured"><span>当日市场状态</span><strong>{state?.label ?? '历史特征准备中'}</strong><small>{state ? `模型置信度 ${percent(state.confidence)}` : '有效历史不足时不强行识别'}</small></div>

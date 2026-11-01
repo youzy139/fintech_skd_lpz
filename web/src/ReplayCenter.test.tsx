@@ -15,6 +15,7 @@ const result = {
   state: { date: '2024-03-06', label: '趋势上涨 · C0', confidence: 0.82, model_version: 'walk-forward-20240305', trained_through: '2024-03-05', features: { volatility: 0.2, momentum: 0.05, correlation: 0.3, sample_count: 2 }, contributions: [] },
   alerts: [], model_version: 'walk-forward-20240305',
 }
+let backfillResults: { sequence: number; event_date: string; result: typeof result }[] = []
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -30,6 +31,7 @@ class MockWebSocket {
 describe('ReplayCenter', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
+    backfillResults = []
     vi.stubGlobal('WebSocket', MockWebSocket)
     vi.stubGlobal('fetch', vi.fn((path: string, init?: RequestInit) => {
       let body: unknown = null
@@ -37,6 +39,7 @@ describe('ReplayCenter', () => {
       if (path === '/api/kafka/status') body = { enabled: true, bootstrap_servers: '127.0.0.1:9092', topic: 'test.replay.days', topic_partitions: 1, connection: 'on-demand' }
       if (path === '/api/flink/status') body = { enabled: true, rest_url: 'http://127.0.0.1:8081', output_topic: 'test.features.days', late_topic: 'test.late.days', checkpoint_interval_ms: 2000, connection: 'on-demand' }
       if (path === '/api/replay/sessions' && init?.method === 'POST') body = { ...session, status: 'pending', mode: JSON.parse(String(init.body)).mode }
+      if (path.includes('/results?')) body = { session_id: 'replay-1', results: backfillResults, next_sequence: backfillResults.at(-1)?.sequence ?? 0, has_more: false }
       if (path.endsWith('/start') || path.endsWith('/resume')) body = session
       if (path.endsWith('/pause')) body = { ...session, status: 'paused', processed_days: 1, current_date: '2024-03-04', progress: 1 / 3 }
       if (path.endsWith('/speed')) body = { ...session, speed: 2 }
@@ -63,8 +66,8 @@ describe('ReplayCenter', () => {
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/replay/sessions/replay-1/resume', expect.objectContaining({ method: 'POST' })))
 
-    const completed = { ...session, status: 'completed', processed_days: 3, current_date: '2024-03-06', progress: 1, latest_result: result }
-    act(() => socket.emit({ type: 'replay_day', session: completed, result }))
+    const completed = { ...session, status: 'completed', processed_days: 3, current_date: '2024-03-06', progress: 1, latest_sequence: 3, latest_result: result }
+    act(() => socket.emit({ type: 'replay_day', sequence: 3, session: completed, result }))
     expect(screen.getByText('趋势上涨 · C0')).toBeInTheDocument()
     expect(screen.getByText('2 条 · 2 个资产')).toBeInTheDocument()
     expect(screen.getByText('2024-01-01 至 2024-03-06')).toBeInTheDocument()
@@ -112,5 +115,29 @@ describe('ReplayCenter', () => {
     expect(screen.getByText('file:///savepoints/savepoint-1')).toBeInTheDocument()
     expect(screen.getByText('作业与首检查点就绪')).toBeInTheDocument()
     expect(screen.getByText('Savepoint 停止')).toBeInTheDocument()
+  })
+
+  it('backfills missed results and ignores stale sequences', async () => {
+    backfillResults = [{ sequence: 3, event_date: result.event_time, result }]
+    render(<ReplayCenter />)
+    const start = await screen.findByRole('button', { name: '开始回放' })
+    await waitFor(() => expect(start).toBeEnabled())
+    fireEvent.click(start)
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+    const socket = MockWebSocket.instances[0]
+    act(() => socket.onopen?.())
+    expect(await screen.findByText('趋势上涨 · C0')).toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledWith('/api/replay/sessions/replay-1/results?after=0&limit=100', expect.anything())
+    expect(screen.getByText('结果序列').nextElementSibling?.textContent).toBe('3')
+
+    const stale = { ...result, state: { ...result.state, label: '旧结果' } }
+    act(() => socket.emit({ type: 'replay_day', sequence: 2, session: { ...session, latest_sequence: 2, latest_result: stale }, result: stale }))
+    expect(screen.queryByText('旧结果')).not.toBeInTheDocument()
+    expect(screen.getByText('趋势上涨 · C0')).toBeInTheDocument()
+
+    act(() => socket.emit({ type: 'replay_reset', session: { ...session, status: 'pending', processed_days: 0, latest_sequence: 0, latest_result: null } }))
+    act(() => socket.emit({ type: 'replay_day', sequence: 1, session: { ...session, latest_sequence: 1, latest_result: result }, result }))
+    expect(screen.getByText('结果序列').nextElementSibling?.textContent).toBe('1')
+    expect(screen.getByText('趋势上涨 · C0')).toBeInTheDocument()
   })
 })

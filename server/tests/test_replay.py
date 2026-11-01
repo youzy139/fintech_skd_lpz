@@ -119,8 +119,11 @@ def test_replay_rest_websocket_pause_resume_and_reconnect():
             assert websocket.receive_json()["type"] == "replay_snapshot"
             assert http.post(f"/api/replay/sessions/{session_id}/start").json()["status"] == "running"
             assert websocket.receive_json()["type"] == "replay_status"
-            day = websocket.receive_json()
-            assert day["type"] == "replay_day"
+            while True:
+                day = websocket.receive_json()
+                if day["type"] == "replay_day":
+                    break
+            assert day["sequence"] == 1
             assert day["result"]["input_end"] == day["result"]["event_time"]
             paused = http.post(f"/api/replay/sessions/{session_id}/pause").json()
             assert paused["status"] == "paused"

@@ -19,6 +19,7 @@ from app.core.config import load_config
 from app.core.observability import RequestMetrics, build_request_middleware, install_error_handlers
 from app.services.market import MarketService
 from app.services.replay import ReplayManager
+from app.services.replay_store import ReplayStore
 
 
 @strawberry.type
@@ -39,7 +40,7 @@ class Query:
 schema = strawberry.Schema(query=Query)
 
 
-def create_app(service: MarketService | None = None, initialize: bool = True) -> FastAPI:
+def create_app(service: MarketService | None = None, initialize: bool = True, replay_store: ReplayStore | None = None) -> FastAPI:
     config = load_config()
 
     @asynccontextmanager
@@ -47,7 +48,8 @@ def create_app(service: MarketService | None = None, initialize: bool = True) ->
         app.state.service = service or MarketService(config)
         if initialize:
             await asyncio.to_thread(app.state.service.initialize)
-        app.state.replays = ReplayManager(app.state.service, config)
+        store = replay_store or (ReplayStore(":memory:") if not initialize else None)
+        app.state.replays = ReplayManager(app.state.service, config, store)
         try:
             yield
         finally:

@@ -31,7 +31,7 @@ def current_replay(request: Request):
 @router.post("/api/replay/sessions", status_code=201)
 def create_replay(payload: ReplayCreateRequest, request: Request):
     try:
-        return request.app.state.replays.create(payload.start_date, payload.end_date, payload.speed, payload.mode)
+        return request.app.state.replays.create(payload.start_date, payload.end_date, payload.speed, payload.mode, request.headers.get("idempotency-key"))
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -41,10 +41,17 @@ def replay_detail(session_id: str, request: Request):
     return replay_session(request, session_id).snapshot()
 
 
+@router.get("/api/replay/sessions/{session_id}/results")
+def replay_results(session_id: str, request: Request, after: int = 0, limit: int = 100):
+    if after < 0 or not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="after 必须非负，limit 必须在 1 到 100 之间")
+    return request.app.state.replays.results(session_id, after, limit)
+
+
 @router.post("/api/replay/sessions/{session_id}/start")
 async def start_replay(session_id: str, request: Request):
     try:
-        return await replay_session(request, session_id).start()
+        return await replay_session(request, session_id).start(request.headers.get("idempotency-key"))
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -52,7 +59,7 @@ async def start_replay(session_id: str, request: Request):
 @router.post("/api/replay/sessions/{session_id}/pause")
 async def pause_replay(session_id: str, request: Request):
     try:
-        return await replay_session(request, session_id).pause()
+        return await replay_session(request, session_id).pause(request.headers.get("idempotency-key"))
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -60,7 +67,7 @@ async def pause_replay(session_id: str, request: Request):
 @router.post("/api/replay/sessions/{session_id}/resume")
 async def resume_replay(session_id: str, request: Request):
     try:
-        return await replay_session(request, session_id).resume()
+        return await replay_session(request, session_id).resume(request.headers.get("idempotency-key"))
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -68,11 +75,14 @@ async def resume_replay(session_id: str, request: Request):
 @router.post("/api/replay/sessions/{session_id}/speed")
 async def replay_speed(session_id: str, payload: ReplaySpeedRequest, request: Request):
     try:
-        return await replay_session(request, session_id).set_speed(payload.speed)
+        return await replay_session(request, session_id).set_speed(payload.speed, request.headers.get("idempotency-key"))
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.post("/api/replay/sessions/{session_id}/restart")
 async def restart_replay(session_id: str, request: Request):
-    return await replay_session(request, session_id).restart()
+    try:
+        return await replay_session(request, session_id).restart(request.headers.get("idempotency-key"))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error

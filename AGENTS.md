@@ -17,7 +17,7 @@
 
 **当前实现不是完整分布式系统。** 本地默认 SQLite，可通过 `STORAGE_MODE=distributed` 显式切换 ClickHouse 主读；MySQL/MinIO 已进入发布链路，Redis 可回源。ClickHouse 按来源代次在线发布已实现并完成真实小文件重发，但独立微服务、完整认证授权和 LLM 助手未落地。Docker Desktop、八个默认容器和可选 Flink 已真实启动，全量导入、对象回读、Kafka/Flink 回放、Nginx WebSocket、Chrome、故障恢复及干净源码目录与空卷复验均已通过。真实历史回放不等于实时行情，不得把竞赛目标或性能指标描述成已经达标。
 
-`v0.3.0` 完成本地回放，`v0.3.1` 完成 Kafka，`v0.3.2` 完成 Flink，当前最新版本标签 `v0.3.3` 完成分布式存储、在线增量发布与容器部署。`v0.3.4` 首批契约、观测、计时、基准和 Flink 连续回放修复已通过用户体验确认，后端 67 项、前端 10 项测试通过，覆盖率 73.01%；完整版本尚未打标签。下一步实现会话持久化与后端重启恢复；完整待办见 `docs/v0.3.4-plan.md` 与 `docs/v0.3.4-observability.md`。
+`v0.3.0` 完成本地回放，`v0.3.1` 完成 Kafka，`v0.3.2` 完成 Flink，当前最新版本标签 `v0.3.3` 完成分布式存储、在线增量发布与容器部署。`v0.3.4` 已完成首批契约、观测、Flink 连续回放修复，以及会话结果持久化、后端重启恢复、断线补拉和幂等控制；后端 70 项、前端 11 项测试通过，覆盖率 74.18%。完整版本尚未打标签，下一阶段是服务拆分与治理；详见 `docs/v0.3.4-plan.md`、`docs/v0.3.4-observability.md` 和 `docs/v0.3.4-replay-persistence.md`。
 
 核心业务流程为“状态判断 → 预警决策 → 分析建议”。数值特征与状态由数学模型计算，预警由确定性规则产生；规划中的 LLM 只负责文本理解、证据整合与解释，不应成为核心链路的单点依赖。
 
@@ -82,7 +82,8 @@
 │   │   │   ├── kafka.py         # aiokafka 生产消费、去重、乱序缓存、位点提交和阶段计时
 │   │   │   ├── flink.py         # 每运行作业提交、首检查点就绪、健康检查与 Savepoint 生命周期
 │   │   │   ├── market.py        # 应用组装：加载资产、计算特征/状态/预警并保存快照
-│   │   │   ├── replay.py        # 日期输入、三通道会话、运行 ID、阶段计时、控制与订阅
+│   │   │   ├── replay.py        # 日期输入、三通道会话、模型重建、恢复控制与订阅
+│   │   │   ├── replay_store.py  # SQLite 会话、逐日结果、当前指针与幂等操作持久化
 │   │   │   ├── replay_benchmark.py # 固定区间的三通道性能基准与结果容差核对
 │   │   │   └── storage.py       # quality、states、alerts 快照写入
 │   │   └── main.py              # FastAPI、GraphQL、WebSocket、路由与中间件组装
@@ -142,7 +143,7 @@
 
 - REST：`/api/health`、`/api/home/summary`、`/api/assets`、`/api/assets/{code}/series`、`/api/regimes/latest`、`/api/regimes`、`/api/features/latest`、`/api/alerts`、`/api/data/quality`、`/api/data/summary`、`/api/data/overview`、`/api/data/tags`、`/api/data/records`、`/api/data/files`、`/api/data/files/{source_id}/records`。
 - 系统观测：`/api/health/ready` 检查市场快照与目录可读性；`/api/system/metrics` 提供当前进程的路由延迟分位数、错误数、WebSocket 连接和回放会话数，不是跨实例指标。HTTP 响应带 `X-Request-ID`；错误保留 `detail`，并增加 `error.code`、`error.message`、`error.request_id`。日志不记录查询参数或正文。
-- 回放 REST：`/api/replay/calendar`、`/api/kafka/status`、`/api/flink/status`、`/api/replay/sessions`、`/api/replay/sessions/current`、`/api/replay/sessions/{id}`，以及会话的 `start`、`pause`、`resume`、`speed`、`restart` 子路径。创建会话的 `mode` 为 `local`、`kafka` 或 `flink`，对应通道未启用时返回 422。快照包含 `run_id`、`flink_job_id`、`savepoint_path` 和真实 `timing`。
+- 回放 REST：`/api/replay/calendar`、`/api/kafka/status`、`/api/flink/status`、`/api/replay/sessions`、`/api/replay/sessions/current`、`/api/replay/sessions/{id}`，以及会话的 `results`、`start`、`pause`、`resume`、`speed`、`restart` 子路径。`results` 通过 `after` 和 `limit` 按序列补拉，单页最多 100 条。创建与控制接受 `Idempotency-Key`。快照包含 `run_id`、`latest_sequence`、`recovery`、`flink_job_id`、`savepoint_path` 和真实 `timing`。
 - GraphQL：`/graphql`，当前查询字段只有 `assets`、`latestState`、`sourceSummary`。
 - WebSocket：`/ws/replay/{session_id}` 发送会话快照和真实逐日计算结果；旧 `/ws/replay` 仍按预计算历史状态发送最多 100 条消息，仅保留作回归对照。两者都不是 Kafka/Flink 实时流。
 - OpenAPI：FastAPI 自动提供 `/docs`。
@@ -224,12 +225,12 @@ npm run build
 
 当前测试基线：
 
-- `v0.3.4` 当前后端 67 项测试通过，覆盖数据、模型、回放、接口、存储、在线发布、请求观测、Flink 生命周期、阶段计时和基准汇总。
-- 后端总体分支覆盖率为 73.01%，高于 30% 的竞赛门槛；阶段 B/C/D/E 已真实验收。Flink Java 作业不计算在 Python 覆盖率内，Maven `clean package` 已通过。
-- 前端 10 项测试通过，覆盖既有首页、工作台、数据中心、标签与滚动行为，以及回放控制、WebSocket 当日结果、Kafka 与 Flink 通道创建参数和真实计时面板。
-- 后端接口测试使用 fake service、固定行情或 fake Kafka 消息，前端测试 mock `fetch`、WebSocket 和图表；这些单元与集成测试不代替真实 broker、Flink 集群和页面验收。
-- 最终容器数据为 1,046 个文件、1,556,492 条记录；全部 MinIO 对象已回读核对。真实 Chrome 已检查首页、工作台、数据中心和 `v0.3.4` 回放计时面板，无 500 或浏览器错误；Nginx WebSocket 已收到真实逐日回放。
-- 本地历史环境已在 2026-04-27 至 2026-04-30 完成四天三通道 `1e-12` 容差一致性；`v0.3.4` 的每运行独立 Flink 作业已通过连续两轮、暂停继续、同会话重开、不同日期、乱序去重、超迟分流和 Savepoint 恢复。最新 Chrome 截图为 `server/data/v034-flink-independent.png`，详见 `docs/v0.3.4-observability.md`。
+- `v0.3.4` 当前后端 70 项测试通过，覆盖数据、模型、回放、接口、存储、在线发布、请求观测、Flink 生命周期、持久化恢复、幂等控制、阶段计时和基准汇总。
+- 后端总体分支覆盖率为 74.18%，高于 30% 的竞赛门槛；阶段 B/C/D/E 已真实验收。Flink Java 作业不计算在 Python 覆盖率内，Maven `clean package` 已通过。
+- 前端 11 项测试通过，覆盖既有首页、工作台、数据中心、标签与滚动行为，以及回放控制、WebSocket 当日结果、Kafka 与 Flink 通道创建参数、断线补拉、旧序号去重和真实计时面板。
+- 后端接口测试使用 fake service、固定行情或 fake Kafka 消息，前端测试 mock `fetch`、WebSocket 和图表；这些单元与集成测试不代替真实 broker、Flink 集群、后端重启和页面验收。
+- 最终容器数据为 1,046 个文件、1,556,492 条记录；全部 MinIO 对象已回读核对。真实 Chrome 已检查首页、工作台、数据中心、回放计时与恢复补拉页面，无 500 或浏览器错误；Nginx WebSocket 已收到真实逐日回放。
+- 本地历史环境已完成四天三通道 `1e-12` 容差一致性、连续 Flink、乱序去重、超迟分流和 Savepoint 恢复。真实 Docker 后端重启已验证首日保留、三日序列完整、运行 ID 不变和新作业 ID，详见 `docs/v0.3.4-replay-persistence.md`。
 - 当前没有 CI 工作流、可持续运行的浏览器端 E2E 测试套件、覆盖全部竞赛指标的正式性能压测报告或前端覆盖率统计。
 
 修改解析、模型或接口时，应增加与行为对应的测试；不要只验证模块可导入。完整链路、真实页面、部署和性能仍需单独验证。
