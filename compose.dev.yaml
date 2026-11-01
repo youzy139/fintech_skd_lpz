@@ -1,6 +1,10 @@
 services:
   bootstrap:
     profiles: [full]
+  data-service:
+    profiles: [full]
+    ports:
+      - "8001:8000"
   backend:
     profiles: [full]
   frontend:

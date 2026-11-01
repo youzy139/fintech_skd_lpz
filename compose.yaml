@@ -146,12 +146,32 @@ services:
       kafka: {condition: service_healthy}
     networks: [marketlens]
 
+  data-service:
+    <<: *application
+    command: ["python", "-m", "uvicorn", "app.data_service:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+      clickhouse: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [marketlens]
+
   backend:
     <<: *application
+    environment:
+      <<: *app-environment
+      DATA_SERVICE_URL: http://data-service:8000
+      DATA_SERVICE_TIMEOUT_SECONDS: "5"
     ports:
       - "8000:8000"
     depends_on:
       bootstrap: {condition: service_completed_successfully}
+      data-service: {condition: service_healthy}
       mysql: {condition: service_healthy}
       clickhouse: {condition: service_healthy}
       minio: {condition: service_healthy}

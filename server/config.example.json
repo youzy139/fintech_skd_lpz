@@ -72,5 +72,9 @@
     "ttl_seconds": 60,
     "namespace": "marketlens:catalog:v1"
   },
+  "data_service": {
+    "url": "",
+    "timeout_seconds": 5
+  },
   "cors_origins": ["http://localhost:5173"]
 }

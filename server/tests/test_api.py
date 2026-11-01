@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from market_core.domain.market import AssetMeta, AssetSeries
 from app.main import create_app
+from app.services.remote_catalog import DataServiceError
 
 
 def fake_service():
@@ -21,6 +22,7 @@ def fake_service():
         quality={"loaded_assets": 1, "total_rows": 2}, assets=helper.assets, latest_state=lambda: state,
         asset_series=helper.asset_series,
         home_summary=lambda: {"latest": state, "alert_count": 1, "loaded_assets": 1, "total_rows": 2, "state_count": 1},
+        data_version=lambda: "version-1",
         source_summary=lambda: {"total_files": 1, "imported_files": 1, "total_records": 2, "errors": 0, "groups": []},
         source_overview=lambda kind: {"kind": kind, "files": 1, "records": 2, "start_date": "2024-01-01", "end_date": "2024-01-02", "undated_records": 0, "granularity": "day", "trend": [{"period": "2024-01-02", "count": 2}], "fields": []},
         source_tags=lambda kind: [{"tag": "人工智能", "records": 1}],
@@ -128,3 +130,18 @@ def test_internal_errors_do_not_leak_implementation_details():
         assert response.json()["error"]["code"] == "internal_error"
         assert "private implementation detail" not in response.text
         assert http.get("/api/health/ready").status_code == 503
+
+
+def test_data_service_failure_uses_stable_retryable_error():
+    service = fake_service()
+
+    def fail_summary():
+        raise DataServiceError("private upstream detail")
+    service.source_summary = fail_summary
+    with TestClient(create_app(service, initialize=False)) as http:
+        assert http.get("/api/data/version").json() == {"data_version": "version-1"}
+        response = http.get("/api/data/summary", headers={"X-Request-ID": "trace.upstream-1"})
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "5"
+        assert response.json()["error"] == {"code": "data_service_unavailable", "message": "数据服务暂时不可用", "request_id": "trace.upstream-1"}
+        assert "private upstream detail" not in response.text

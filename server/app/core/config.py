@@ -22,6 +22,7 @@ class AppConfig:
     minio: dict[str, Any]
     clickhouse: dict[str, Any]
     redis: dict[str, Any]
+    data_service: dict[str, Any]
     storage_mode: str
     cors_origins: list[str]
 
@@ -83,6 +84,8 @@ def load_config(path: Path | None = None) -> AppConfig:
     enabled("REDIS", redis)
     override("REDIS", redis, "host", "port", "db", "ttl_seconds", "namespace")
     redis["password"] = os.getenv("REDIS_PASSWORD", redis["password"])
+    data_service = raw.get("data_service", {"url": "", "timeout_seconds": 5})
+    override("DATA_SERVICE", data_service, "url", "timeout_seconds")
     storage_mode = os.getenv("STORAGE_MODE", raw.get("storage_mode", "local"))
     if storage_mode not in {"local", "distributed"}:
         raise ValueError("STORAGE_MODE 必须为 local 或 distributed")
@@ -103,6 +106,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         minio=minio,
         clickhouse=clickhouse,
         redis=redis,
+        data_service=data_service,
         storage_mode=storage_mode,
         cors_origins=[origin.strip() for origin in cors_origins if origin.strip()],
     )

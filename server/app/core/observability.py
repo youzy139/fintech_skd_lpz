@@ -122,7 +122,7 @@ class RequestMetrics:
             }
 
 
-def build_request_middleware(metrics: RequestMetrics, requests: dict[str, deque[float]]):
+def build_request_middleware(metrics: RequestMetrics, requests: dict[str, deque[float]], service_name: str = "marketlens-api"):
     async def observe(request: Request, call_next):
         incoming = request.headers.get("X-Request-ID", "")
         request_id = incoming if REQUEST_ID_PATTERN.fullmatch(incoming) else uuid4().hex
@@ -162,7 +162,7 @@ def build_request_middleware(metrics: RequestMetrics, requests: dict[str, deque[
                 "route": route_path,
                 "status": status,
                 "duration_ms": round(duration_ms, 3),
-                "service": "marketlens-api",
+                "service": service_name,
             }
             session_id = request.path_params.get("session_id")
             if session_id:

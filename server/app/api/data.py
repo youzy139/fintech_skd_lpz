@@ -7,6 +7,11 @@ from app.api.dependencies import current_service
 router = APIRouter(tags=["data"])
 
 
+@router.get("/api/data/version")
+def data_version(request: Request):
+    return {"data_version": current_service(request).data_version()}
+
+
 @router.get("/api/data/summary")
 def source_summary(request: Request):
     return current_service(request).source_summary()

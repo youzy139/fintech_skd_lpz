@@ -116,15 +116,15 @@ MarketLens 要解决的不是“让 AI 猜明天涨还是跌”，而是：
 - SQLite 全量迁移基线重复核对通过；MySQL 元数据和 MinIO 原始对象已完成全量迁移，1,046 个对象独立回读哈希通过。
 - ClickHouse 已完成真实全量迁移与双读；新增按来源代次的在线发布后，真实研究文件连续重发通过内容摘要、计数和全局典型查询核对。
 - SQLite 与 ClickHouse 两种显式主读的五组真实 API 结果一致，两实例同日真实回放结果一致；Redis 已验证命中、版本失效和故障回源。
-- `v0.3.4` 当前后端 70 项测试、前端 11 项测试通过，后端分支覆盖率 74.18%，Java 干净构建和前端生产构建通过；真实后端重启恢复和浏览器结果补拉已验收。
-- 默认八个容器服务已真实启动并完成全量导入；全部 1,046 个对象回读、Kafka/Flink 容器回放、Nginx WebSocket、真实 Chrome 和 Redis 停服回源均已验收。
+- `v0.3.4` 当前后端 75 项测试、前端 11 项测试通过，后端分支覆盖率 74.48%，Java 干净构建和前端生产构建通过；真实后端重启恢复和浏览器结果补拉已验收。
+- `v0.3.3` 的默认八个容器服务已真实启动并完成全量导入；全部 1,046 个对象回读、Kafka/Flink 容器回放、Nginx WebSocket、真实 Chrome 和 Redis 停服回源均已验收。`v0.3.4` 新增独立数据服务后，默认编排为九个服务；五组跨进程真实查询一致，数据服务停止时数据接口/readiness 为 503、市场摘要为 200，恢复后无需重启主后端。
 
 这些效果证明的是**数据处理、模型链路和工程可靠性**，不代表已经获得投资收益、预测准确率优势或生产级高可用能力。
 
 ### 尚未达成
 
 - 新闻、社媒、宏观和商品数据尚未进入回放模型。
-- LLM 助手、完整权限、独立微服务和分布式限流尚未完成。
+- LLM 助手、完整权限、特征状态与预警服务拆分、分布式限流尚未完成。
 - 当前处理的是历史数据回放，不是实时行情；单节点 Kafka/Flink 也不是高可用集群。
 - ClickHouse 冷查询和 Redis 热缓存尚未达到正式版性能目标，完整模型回测、性能和故障恢复报告尚未形成。
 
@@ -147,7 +147,7 @@ MarketLens 要解决的不是“让 AI 猜明天涨还是跌”，而是：
 - `v0.3.4` 已拆分 REST 路由，增加请求 ID、稳定错误码、结构化日志、readiness 和进程内延迟指标；回放快照与页面增加运行 ID、结果序列、恢复状态、Flink 作业 ID、Savepoint、模型初始化、通道初始化及逐日阶段耗时，尚未形成完整版本。
 - 首页与工作台支持双向导航、平滑过渡、锚点滚动和精确回到顶部。
 
-本地默认 SQLite，`STORAGE_MODE=distributed` 可显式切换 ClickHouse；Kafka/Flink 为单节点验证环境，独立微服务、完整权限和 LLM 助手仍未完成。Compose 已完成真实启动和核心链路验收，但这仍不是高可用或完整微服务系统。
+本地默认 SQLite，`STORAGE_MODE=distributed` 可显式切换 ClickHouse；Kafka/Flink 为单节点验证环境。`v0.3.4` 已加入独立数据目录服务，特征状态和预警仍在主后端，完整权限和 LLM 助手仍未完成。Compose 不是高可用或完整微服务系统。
 
 **已知问题：** Flink 连续回放的全局水位线缺陷已修复，但每运行独立作业会增加启动与首检查点等待，小数据逐日回放仍慢于本地。ClickHouse 冷查询约 0.75–1.63 秒，当前分布式 Redis 热查询约 36–71ms，未达正式版 `<10ms` 热访问目标。真实单文件在线重发及全局核对约 30.7 秒，仍有派生刷新与全量核对开销。后续按 [v0.3.4 任务书](docs/v0.3.4-plan.md) 分阶段测量和优化，不通过牺牲一致性或容错提速。
 
@@ -183,6 +183,17 @@ npm run dev
 
 访问 `http://localhost:5173`。后端 OpenAPI 文档位于 `http://localhost:8000/docs`，GraphQL 位于 `http://localhost:8000/graphql`。
 
+上述命令默认保留本地单体目录访问。需要在本地验证独立数据服务时，先另开终端启动数据服务，再用 `DATA_SERVICE_URL` 启动主后端：
+
+```bash
+PYTHONPATH=. PYTHONUTF8=1 conda run -n fintech uvicorn app.data_service:app --app-dir server --host 127.0.0.1 --port 8001
+
+DATA_SERVICE_URL=http://127.0.0.1:8001 DATA_SERVICE_TIMEOUT_SECONDS=5 \
+  PYTHONPATH=. PYTHONUTF8=1 conda run -n fintech uvicorn app.main:app --app-dir server --host 127.0.0.1 --port 8000
+```
+
+数据服务文档位于 `http://localhost:8001/docs`，前端无需修改地址。该远程客户端有 5 秒默认超时且不自动重试；数据服务不可用返回 503，市场计算和回放边界不变。
+
 ## 容器与分布式主读
 
 ```bash
@@ -196,7 +207,7 @@ docker compose config
 docker compose up --build
 ```
 
-预处理只在 `server/data/container-sources/` 生成副本，不修改原始文件。默认编排包含初始化、MySQL、ClickHouse、Redis、MinIO、Kafka、后端和 Nginx 前端；首次全量初始化约需十几分钟。精简开发、可选 Flink、在线增量发布、故障验收和 SQLite 回退见 [阶段 E 部署与验收](docs/stage-e-deployment.md)。
+预处理只在 `server/data/container-sources/` 生成副本，不修改原始文件。默认编排包含初始化、MySQL、ClickHouse、Redis、MinIO、Kafka、独立数据服务、主后端和 Nginx 前端，共九个服务；首次全量初始化约需十几分钟。数据服务只在内部网络暴露，主后端通过 `http://data-service:8000` 调用。精简开发、可选 Flink、在线增量发布、故障验收和 SQLite 回退见 [阶段 E 部署与验收](docs/stage-e-deployment.md)。
 
 ## 可选：启动本地 Kafka 事件通道
 

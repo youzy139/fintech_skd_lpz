@@ -16,8 +16,9 @@ from app.api.market import router as market_router
 from app.api.replay import router as replay_router
 from app.api.system import router as system_router
 from app.core.config import load_config
-from app.core.observability import RequestMetrics, build_request_middleware, install_error_handlers
+from app.core.observability import RequestMetrics, build_request_middleware, error_response, install_error_handlers
 from app.services.market import MarketService
+from app.services.remote_catalog import DataServiceError
 from app.services.replay import ReplayManager
 from app.services.replay_store import ReplayStore
 
@@ -63,6 +64,11 @@ def create_app(service: MarketService | None = None, initialize: bool = True, re
     requests: dict[str, deque[float]] = defaultdict(deque)
     app.middleware("http")(build_request_middleware(app.state.metrics, requests))
     install_error_handlers(app)
+
+    @app.exception_handler(DataServiceError)
+    async def data_service_unavailable(_: Request, __: DataServiceError):
+        return error_response(503, "data_service_unavailable", "数据服务暂时不可用", "数据服务暂时不可用", {"Retry-After": "5"})
+
     for router in (system_router, market_router, data_router, replay_router):
         app.include_router(router)
 

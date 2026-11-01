@@ -197,6 +197,13 @@ LLM 不得直接修改原始行情、特征、状态标签、已触发预警或�
 - `/api/replay/sessions/{id}/results?after=N&limit=100` 提供结果补拉，WebSocket 逐日消息带序列号。前端自动重连、忽略旧序号，并用重开代次阻止上一轮补拉污染新结果。创建和控制操作支持 `Idempotency-Key`。
 - 真实 Docker 重启已验证首日保留、三日序列完整、运行 ID 不变和新作业 ID；真实 Chrome 已验证恢复展示及刷新后的结果补拉。详见 [回放持久化与恢复](v0.3.4-replay-persistence.md)。
 
+### v0.3.4 数据服务独立部署
+
+- `app.data_service:app` 只组装数据目录、健康和进程指标接口，不加载市场模型或回放管理器。`DataCatalogService` 独占目录查询与 Redis 缓存组装，主后端通过 `RemoteCatalogClient` 复用同一 REST 契约。
+- `DATA_SERVICE_URL` 为空时保留既有本地单体路径；配置后由主后端通过有界超时的内部 HTTP 调用数据服务，不自动重试。请求 ID 透传，失败对原接口返回 503 和 `data_service_unavailable`，不暴露内部地址或存储异常。
+- 前端仍只访问原主后端和 Nginx 同源接口，REST、GraphQL、WebSocket 与回放计算边界不变。Compose 增加 `data-service`，主后端等待其 readiness；特征状态和预警尚未拆成独立进程，不能称为完整微服务体系。
+- 真实 Compose 验收中，数据总量、类型概览、标签、文件分页和多标签记录查询五组主服务/数据服务响应逐字一致，GraphQL 保持可用。停止数据服务后数据接口与 readiness 返回 503，市场摘要继续返回 200；重新启动数据服务后无需重启主后端即恢复。该结果证明进程边界和故障隔离，不代表服务间鉴权或高可用已经完成。
+
 ## 8. 当前仓库边界
 
 ```text
@@ -207,9 +214,10 @@ market_core/
 server/
   app/api/             # system、market、data、replay 路由与请求契约
   app/core/            # 服务配置、请求追踪与进程内指标
-  app/services/        # 应用组装、存储、回放计时与性能基准
-  app/main.py          # GraphQL、WebSocket、路由与中间件组装
-  tests/               # 核心、导入与接口测试
+  app/services/        # 目录本地/远程适配、存储、回放计时与性能基准
+  app/main.py          # 主后端 GraphQL、WebSocket、路由与中间件组装
+  app/data_service.py  # 独立数据目录服务组装，不加载市场模型
+  tests/               # 核心、导入、接口与数据服务契约测试
   config.example.json  # 无密钥配置模板
   config.json          # 本地私有配置，Git 忽略
   data/                # SQLite、Kafka、Flink 与验收运行时数据，Git 忽略
@@ -227,7 +235,7 @@ docs/                  # 架构和后续数据、模型文档
 - 日窗口使用 Java 17、Flink 2.2.1、Kafka Connector 5.0.0 与 Maven 构建，本地为单 JobManager/TaskManager。
 - 前端使用 React、TypeScript、Vite、ECharts 和 Vitest。
 - 模型使用 NumPy、pandas、scikit-learn，按滚动历史窗口执行标准化、PCA 和 KMeans。
-- Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。默认八个容器和可选 Flink 已真实运行；ClickHouse 使用 25.8.4.13 官方校验包，MinIO 使用固定源码版本。
+- Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。`v0.3.3` 的默认八个容器和可选 Flink 已真实运行；`v0.3.4` 编排增加独立数据服务后为九个。ClickHouse 使用 25.8.4.13 官方校验包，MinIO 使用固定源码版本。
 - LLM 暂定使用 `deepseek-v4.1flash`，API 基础地址和模型可用性尚未验证，当前未接入核心链路。
 - 私钥可通过本地 `.env` 或后续 `server/config.json` 的忽略配置注入；不得提交真实密钥。
 
