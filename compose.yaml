@@ -1,4 +1,8 @@
 x-app-environment: &app-environment
+  AUTH_ENABLED: "true"
+  AUTH_DATABASE_PATH: /app/server/data/auth.sqlite3
+  AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+  AUTH_SESSION_SECONDS: ${AUTH_SESSION_SECONDS:-3600}
   MARKETLENS_CONFIG: /run/marketlens/config.json
   STORAGE_MODE: distributed
   MYSQL_ENABLED: "true"
@@ -166,6 +170,7 @@ services:
     command: ["python", "-m", "uvicorn", "app.feature_service:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       <<: *app-environment
+      AUTH_SERVICE_NAME: feature
       DATA_SERVICE_URL: http://data-service:8000
       DATA_SERVICE_TIMEOUT_SECONDS: "5"
     depends_on:
@@ -185,6 +190,7 @@ services:
     command: ["python", "-m", "uvicorn", "app.alert_service:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       <<: *app-environment
+      AUTH_SERVICE_NAME: alert
       FEATURE_SERVICE_URL: http://feature-service:8000
       FEATURE_SERVICE_TIMEOUT_SECONDS: "10"
     depends_on:
@@ -201,6 +207,7 @@ services:
     <<: *application
     environment:
       <<: *app-environment
+      AUTH_SERVICE_NAME: backend
       DATA_SERVICE_URL: http://data-service:8000
       DATA_SERVICE_TIMEOUT_SECONDS: "5"
       FEATURE_SERVICE_URL: http://feature-service:8000

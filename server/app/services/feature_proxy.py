@@ -12,6 +12,7 @@ from fastapi.websockets import WebSocketDisconnect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake
 
 from app.core.observability import current_request_id
+from app.core.auth import outgoing_auth_headers
 from app.services.proxy_headers import response_headers
 from app.services.remote_feature import FeatureServiceError
 
@@ -20,6 +21,7 @@ async def forward_feature_request(request: Request, base_url: str, timeout_secon
     query = f"?{request.url.query}" if request.url.query else ""
     body = await request.body()
     headers = {"X-Request-ID": current_request_id(), "Accept": "application/json"}
+    headers.update(outgoing_auth_headers())
     for name in ("Content-Type", "Idempotency-Key"):
         value = request.headers.get(name)
         if value:
@@ -50,7 +52,7 @@ async def forward_feature_websocket(websocket: WebSocket, base_url: str, timeout
     url = websocket_url(base_url, websocket.url.path, websocket.url.query)
     tasks: set[asyncio.Task[Any]] = set()
     try:
-        async with websockets.connect(url, additional_headers={"X-Request-ID": current_request_id()}, open_timeout=timeout_seconds, close_timeout=timeout_seconds, proxy=None) as upstream:
+        async with websockets.connect(url, additional_headers={"X-Request-ID": current_request_id(), **outgoing_auth_headers()}, open_timeout=timeout_seconds, close_timeout=timeout_seconds, proxy=None) as upstream:
             async def client_to_upstream() -> None:
                 while True:
                     message = await websocket.receive()

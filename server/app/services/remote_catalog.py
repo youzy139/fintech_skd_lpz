@@ -7,6 +7,7 @@ from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from app.core.observability import current_request_id
+from app.core.auth import outgoing_auth_headers
 
 
 class DataServiceError(RuntimeError):
@@ -27,7 +28,7 @@ class RemoteCatalogClient:
     def _get(self, path: str, parameters: dict[str, Any] | None = None) -> Any:
         query = urlencode([(key, value) for key, values in (parameters or {}).items() for value in (values if isinstance(values, list) else [values]) if value is not None], doseq=True)
         url = f"{self.base_url}{path}" + (f"?{query}" if query else "")
-        request = Request(url, headers={"Accept": "application/json", "X-Request-ID": current_request_id()})
+        request = Request(url, headers={"Accept": "application/json", "X-Request-ID": current_request_id(), **outgoing_auth_headers()})
         try:
             with self.opener(request, timeout=self.timeout_seconds) as response:
                 return json.loads(response.read().decode("utf-8"))

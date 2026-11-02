@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
+import { useAuth } from './Auth'
 import type { FlinkStatus, KafkaStatus, ReplayCalendar, ReplayResultsPage, ReplaySession } from './types'
 
 const statusNames = { pending: '待开始', running: '运行中', paused: '已暂停', completed: '已完成', failed: '失败' }
@@ -18,6 +19,7 @@ function percent(value: number) { return `${(value * 100).toFixed(2)}%` }
 function milliseconds(value: number | null | undefined) { return value === null || value === undefined ? '—' : `${value.toFixed(value >= 100 ? 0 : 1)} ms` }
 
 export default function ReplayCenter() {
+  const { user } = useAuth()
   const [calendar, setCalendar] = useState<ReplayCalendar | null>(null)
   const [kafkaStatus, setKafkaStatus] = useState<KafkaStatus | null>(null)
   const [flinkStatus, setFlinkStatus] = useState<FlinkStatus | null>(null)
@@ -98,9 +100,11 @@ export default function ReplayCenter() {
         }
         setSession(message.session)
       }
-      socket.onclose = () => {
+      socket.onclose = event => {
         if (disposed) return
         setConnected(false)
+        if (event.code === 4401) { window.dispatchEvent(new Event('marketlens:unauthorized')); return }
+        if (event.code === 4403 || event.code === 4404) { setError(event.code === 4403 ? '没有订阅此回放的权限' : '回放会话不存在'); return }
         reconnect = setTimeout(connect, 1000)
       }
       socket.onerror = () => setError('回放推送连接中断，将自动重连并补拉结果')
@@ -115,6 +119,7 @@ export default function ReplayCenter() {
   }, [session?.id])
 
   async function perform(action: () => Promise<ReplaySession>) {
+    if (!user.can_control_replay) { setError('当前账号仅可查看回放，请联系管理员授予分析员权限'); return }
     setBusy(true)
     setError('')
     try { setSession(await action()) }
@@ -141,7 +146,8 @@ export default function ReplayCenter() {
   return <>
     <div className="replay-intro"><div><span>EVENT-TIME REPLAY</span><h2>让历史按原来的时间顺序重新到达</h2><p>每天只把当日行情追加到可见历史，再计算特征、状态和预警。完整历史仍在档案库中，但不会提前进入模型。</p></div><b>{mode === 'flink' ? 'Flink 事件时间窗口' : mode === 'kafka' ? 'Kafka 事件传输' : '本地真实计算'} · 非实时行情</b></div>
     {error && <div className="error" role="alert">{error}</div>}
-    <section className="replay-controls" aria-label="历史回放控制">
+    {!user.can_control_replay && <p className="method-note">观察者模式：可查看结果和推送，不能创建、暂停或重新开始回放。</p>}
+    <fieldset className="replay-permission" disabled={!user.can_control_replay}><section className="replay-controls" aria-label="历史回放控制">
       <div className="replay-range"><label>开始日期<input aria-label="回放开始日期" type="date" min={calendar?.min_date} max={calendar?.max_date} value={startDate} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setStartDate(event.target.value)} /></label><span>至</span><label>结束日期<input aria-label="回放结束日期" type="date" min={calendar?.min_date} max={calendar?.max_date} value={endDate} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setEndDate(event.target.value)} /></label></div>
       <label>事件通道<select aria-label="回放通道" value={mode} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setMode(event.target.value as 'local' | 'kafka' | 'flink')}><option value="local">本地直连</option><option value="kafka" disabled={!kafkaStatus?.enabled}>Kafka 事件{kafkaStatus?.enabled ? '' : '（未启用）'}</option><option value="flink" disabled={!kafkaStatus?.enabled || !flinkStatus?.enabled}>Flink 窗口{kafkaStatus?.enabled && flinkStatus?.enabled ? '' : '（未启用）'}</option></select></label>
       <label className="replay-speed">播放速度<select aria-label="回放速度" value={speed} disabled={busy} onChange={event => void changeSpeed(Number(event.target.value))}>{speeds.map(value => <option key={value} value={value}>{value}×</option>)}</select></label>
@@ -151,7 +157,7 @@ export default function ReplayCenter() {
         {status === 'paused' && <button className="replay-primary" disabled={busy} onClick={() => session && void perform(() => post(`/api/replay/sessions/${session.id}/resume`))}>继续</button>}
         {session && <button disabled={busy} onClick={() => void perform(() => post(`/api/replay/sessions/${session.id}/restart`))}>从头重开</button>}
       </div>
-    </section>
+    </section></fieldset>
     <section className="replay-progress" aria-live="polite">
       <div className="replay-progress-head"><div><span className={`replay-status ${status}`}>{statusNames[status]}</span><strong>{session?.current_date ?? '尚未开始'}</strong><small>{connected ? '结果推送已连接' : '等待结果推送连接'}</small></div><b>{session ? `${session.processed_days} / ${session.total_days} 个交易日` : '请选择回放范围'}</b></div>
       <div className="replay-track"><i style={{ width: `${(session?.progress ?? 0) * 100}%` }} /></div>

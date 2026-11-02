@@ -1,23 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Any
 
 import strawberry
+from graphql import GraphQLError
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from strawberry.fastapi import GraphQLRouter
 from strawberry.scalars import JSON
 
 from app.api.data import router as data_router
+from app.api.auth import router as auth_router
 from app.api.dependencies import replay_session
 from app.api.market import router as market_router
 from app.api.replay import router as replay_router
 from app.api.system import router as system_router
 from app.core.config import load_config
-from app.core.observability import RequestMetrics, build_request_middleware, error_response, install_error_handlers
+from app.core.auth import auth_enabled, install_auth, require_domain
+from app.core.observability import RequestMetrics, build_request_middleware, current_request_id, error_response, install_error_handlers
 from app.services.alert_proxy import forward_alert_request
 from app.services.feature_proxy import forward_feature_request, forward_feature_websocket
 from app.services.market import MarketService
@@ -32,18 +37,36 @@ from app.services.replay_store import ReplayStore
 class Query:
     @strawberry.field
     def assets(self, info: strawberry.Info) -> JSON:
+        if auth_enabled():
+            graphql_domain(info, "market")
         return info.context["service"].assets()
 
     @strawberry.field
     def latest_state(self, info: strawberry.Info) -> JSON:
+        if auth_enabled():
+            graphql_domain(info, "market")
         return info.context["service"].latest_state()
 
     @strawberry.field
     def source_summary(self, info: strawberry.Info) -> JSON:
+        if auth_enabled():
+            graphql_domain(info, "catalog")
         return info.context["service"].source_summary()
 
 
-schema = strawberry.Schema(query=Query)
+def graphql_domain(info, domain):
+    try:
+        require_domain(info.context["principal"], domain)
+    except HTTPException as error:
+        raise GraphQLError(error.detail, extensions={"code": "forbidden", "request_id": current_request_id()}) from None
+
+
+class SafeSchema(strawberry.Schema):
+    def process_errors(self, errors, execution_context=None):
+        logging.getLogger("marketlens.graphql").warning("GraphQL rejected request_id=%s error_count=%s", current_request_id(), len(errors))
+
+
+schema = SafeSchema(query=Query)
 
 
 def create_app(service: Any | None = None, initialize: bool = True, replay_store: ReplayStore | None = None, title: str = "金融市场状态监控平台", service_name: str = "marketlens-api") -> FastAPI:
@@ -80,11 +103,14 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
                     app.state.alert_service.close()
 
     app = FastAPI(title=title, version="0.3.3", lifespan=lifespan)
+    install_auth(app, config.cors_origins)
     app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])
     app.state.metrics = RequestMetrics()
     requests: dict[str, deque[float]] = defaultdict(deque)
     app.middleware("http")(build_request_middleware(app.state.metrics, requests, service_name=service_name))
     install_error_handlers(app)
+    if service_name == "marketlens-api":
+        app.include_router(auth_router)
 
     @app.exception_handler(DataServiceError)
     async def data_service_unavailable(_: Request, __: DataServiceError):
@@ -113,6 +139,9 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
         def openapi_schema():
             if app.openapi_schema is None:
                 app.openapi_schema = app.state.service.feature.get("/openapi.json")
+                local = get_openapi(title=app.title, version=app.version, routes=app.routes)
+                app.openapi_schema["paths"].update({path: definition for path, definition in local["paths"].items() if path.startswith("/api/auth/")})
+                app.openapi_schema.setdefault("components", {}).setdefault("schemas", {}).update(local.get("components", {}).get("schemas", {}))
             return app.openapi_schema
         app.openapi = openapi_schema
 
@@ -163,7 +192,7 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
                 app.state.metrics.websocket_disconnected()
 
     def graphql_context(request: Request) -> dict[str, Any]:
-        return {"service": request.app.state.service}
+        return {"service": request.app.state.service, "principal": getattr(request.state, "principal", None)}
 
     graphql = GraphQLRouter(schema, context_getter=graphql_context)
     app.include_router(graphql, prefix="/graphql")

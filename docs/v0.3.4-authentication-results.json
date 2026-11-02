@@ -1,0 +1,46 @@
+{
+  "generated_at": "2026-11-02T11:50:26.109Z",
+  "scope": "Local Docker and real Chrome; no concurrency or high-availability claim; pending user acceptance",
+  "regression": {
+    "backend_passed": 107,
+    "frontend_passed": 14,
+    "python_branch_coverage_percent": 74.86,
+    "frontend_production_build": true
+  },
+  "integration": {
+    "checks": [
+      "anonymous main REST blocked 401 with request ID",
+      "real REST GraphQL OpenAPI and delegated permissions verified",
+      "all three direct business services reject anonymous access",
+      "real WebSocket 4401 4403 and missing-session 4404 preserved",
+      "two actual replay days and observer push equal accepted pre-auth baseline",
+      "logout closes connected WebSocket 4401",
+      "backend restart preserves login and replay results",
+      "account permission update revokes existing HTTP session"
+    ],
+    "complete": true,
+    "sequences": [
+      1,
+      2
+    ],
+    "baseline_equal": true
+  },
+  "browser": {
+    "checks": [
+      "browser bootstrap and administrator login",
+      "administrator creates three scoped accounts through UI",
+      "observer replay controls disabled and account administration absent",
+      "catalog-only account sees only data center",
+      "no script-readable cookie or web storage credentials",
+      "analyst replay control enabled"
+    ],
+    "browserErrors": []
+  },
+  "final_state": {
+    "default_compose_restored": true,
+    "setup_required": true,
+    "anonymous_assets_status": 401,
+    "readiness_status": 200,
+    "chrome_setup_page_verified": true
+  }
+}

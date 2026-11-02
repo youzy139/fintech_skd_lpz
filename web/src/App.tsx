@@ -4,6 +4,7 @@ import Landing from './Landing'
 import SourceCatalog from './SourceCatalog'
 import ReplayCenter from './ReplayCenter'
 import { api } from './api'
+import { useAuth } from './Auth'
 import type { Alert, Asset, AssetSeries, HomeSummary, Regime } from './types'
 
 const pages = [
@@ -30,10 +31,11 @@ function Panel({ title, subtitle, children, action }: { title: string; subtitle?
 }
 
 function Workspace({ page, onNavigate, latestDate, alertCount, children }: { page: Page; onNavigate: (page: Page) => void; latestDate?: string; alertCount: number; children: React.ReactNode }) {
+  const { user } = useAuth()
   return <div className="shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">M</span><div>MarketLens<small>市场状态监控平台</small></div></div>
-      <nav>{pages.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => onNavigate(id)}><span>{icon}</span>{label}{id === 'alerts' && alertCount > 0 && <b>{alertCount}</b>}</button>)}</nav>
+      <nav>{pages.filter(([id]) => id === 'data' ? user.domains.includes('catalog') : id === 'home' || id === 'replay' ? user.domains.includes('market') && user.domains.includes('catalog') : user.domains.includes('market')).map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => onNavigate(id)}><span>{icon}</span>{label}{id === 'alerts' && alertCount > 0 && <b>{alertCount}</b>}</button>)}</nav>
       <div className="sidebar-foot"><span className="pulse" />数据服务运行中<small>v0.3.3 · 测试版本</small></div>
     </aside>
     <main className="main" key={page}>
@@ -45,7 +47,8 @@ function Workspace({ page, onNavigate, latestDate, alertCount, children }: { pag
 }
 
 function App() {
-  const [page, setPage] = useState<Page>('home')
+  const { user } = useAuth()
+  const [page, setPage] = useState<Page>(!user.domains.includes('market') ? 'data' : !user.domains.includes('catalog') ? 'overview' : 'home')
   const [homeData, setHomeData] = useState<HomeSummary | null>(null)
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState('')
@@ -69,7 +72,7 @@ function App() {
     if (next !== 'home' && next !== 'data' && next !== 'replay' && !data) void loadMarket()
   }, [data, loadMarket])
 
-  useEffect(() => { api<HomeSummary>('/api/home/summary').then(setHomeData).catch(() => setHomeData(null)) }, [])
+  useEffect(() => { if (user.domains.includes('market') && user.domains.includes('catalog')) api<HomeSummary>('/api/home/summary').then(setHomeData).catch(() => setHomeData(null)); else if (user.domains.includes('market')) void loadMarket() }, [])
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }) }, [page])
   useEffect(() => {
     if (page !== 'overview' || !data || !selectedAsset) return

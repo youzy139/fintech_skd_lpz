@@ -7,6 +7,7 @@ from urllib.request import Request as HttpRequest, urlopen
 from fastapi import Request, Response
 
 from app.core.observability import current_request_id
+from app.core.auth import outgoing_auth_headers
 from app.services.proxy_headers import response_headers
 from app.services.remote_alert import AlertServiceError
 
@@ -14,6 +15,7 @@ from app.services.remote_alert import AlertServiceError
 async def forward_alert_request(request: Request, base_url: str, timeout_seconds: float) -> Response:
     query = f"?{request.url.query}" if request.url.query else ""
     headers = {"X-Request-ID": current_request_id(), "Accept": "application/json"}
+    headers.update(outgoing_auth_headers())
 
     def send() -> tuple[int, bytes, dict[str, str]]:
         upstream = HttpRequest(base_url.rstrip("/") + request.url.path + query, headers=headers, method=request.method)

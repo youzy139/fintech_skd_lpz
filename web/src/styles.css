@@ -19,3 +19,24 @@ html{scroll-behavior:smooth}section{scroll-margin-top:24px}.shell{animation:work
 
 
 @media(max-width:1100px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.wide-left,.equal{grid-template-columns:1fr}.main{padding:26px}.metrics.three{grid-template-columns:repeat(3,minmax(0,1fr))}.hero{grid-template-columns:1fr;padding-top:65px}.hero-copy{text-align:center}.hero-copy>p{margin:auto}.hero-actions,.hero-proof{justify-content:center}.hero-visual{max-width:580px;width:100%;margin:auto}.data-banner{flex-direction:column;gap:35px}.method-flow p{padding:0 8px}}@media(max-width:720px){.sidebar{width:68px;padding:22px 9px}.brand{padding:0 5px 30px}.brand>div,nav button:not(.active){font-size:0}nav button{justify-content:center;padding:12px}nav button span{font-size:20px}nav button b,.sidebar-foot{display:none}.brand-mark{width:32px;height:32px}.main{margin-left:68px;width:calc(100% - 68px);padding:20px 14px}.metrics,.metrics.three{grid-template-columns:1fr}.metric{min-height:auto}.asof{display:none}.panel{padding:16px}.alert time{display:none}.alert h3 small{display:none}header{margin-bottom:20px}.panel-head{flex-direction:column}.chart{height:260px}.landing-nav{height:75px;padding:0 18px}.landing-links{display:none}.landing-brand{font-size:16px}.nav-entry{padding:8px 10px;font-size:10px}.hero{padding:55px 20px 65px;gap:35px}.hero h1{font-size:39px;letter-spacing:-1px}.hero-copy>p{font-size:13px}.hero-actions{gap:18px}.hero-proof{gap:10px;flex-wrap:wrap}.hero-visual{padding:10px}.live-card{padding:20px}.live-state{font-size:21px}.floating-note{right:-5px;bottom:-20px}.capabilities,.method,.data-banner,.landing-cta{padding:60px 20px}.section-heading h2,.landing-cta h2{font-size:26px}.capability-grid{grid-template-columns:1fr}.capability-grid p{min-height:auto}.method-flow{display:grid;grid-template-columns:1fr;gap:15px}.method-flow>i{transform:rotate(90deg);text-align:center}.data-banner{margin:20px;padding:35px 20px}.data-numbers{gap:22px}.data-numbers strong{font-size:21px}.landing-footer{flex-direction:column;gap:18px;text-align:center}}
+/* Authentication and account controls. */
+.account-bar { position: sticky; top: 0; height: 60px; z-index: 20; display: flex; align-items: center; gap: 16px; padding: 10px 24px; background: #12212c; color: #d5e5ed; border-bottom: 1px solid #304353; }
+.account-bar ~ div .sidebar { top: 60px; }
+.account-bar button { white-space: nowrap; }
+@media(max-width:720px) { .account-bar { gap: 8px; padding: 8px 12px; } .account-bar small { display: none; } .account-bar > span { margin-right: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } }
+.account-bar small { color: #91aab8; margin-right: auto; }
+.account-bar button, .auth-card button, .account-form button { padding: 8px 16px; border: 1px solid #47d7ac; border-radius: 6px; background: #15392f; color: #b8f4de; cursor: pointer; }
+.auth-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at top, #173445, #09131c 70%); color: #d5e5ed; }
+.auth-card { width: min(100%, 440px); padding: 36px; border: 1px solid #304353; border-radius: 16px; background: #10202b; display: grid; gap: 20px; }
+.auth-card h1 { font-size: 26px; margin: 0; }
+.auth-card p, .auth-card small { color: #91aab8; line-height: 1.7; margin: 0; }
+.auth-card label, .account-form label { display: grid; gap: 8px; }
+.auth-card input, .account-form input:not([type=checkbox]), .account-form select { min-width: 0; padding: 10px; border-radius: 6px; border: 1px solid #385363; background: #0a1822; color: #d5e5ed; }
+.account-page { max-width: 1200px; padding: 32px 24px; margin: auto; }
+.account-page > p { margin: 16px 0; }
+.account-page .panel { padding: 24px; margin-bottom: 24px; }
+.account-form { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 16px 0; border-bottom: 1px solid #304353; }
+.account-form label:has(input[type=checkbox]) { display: flex; align-items: center; }
+.account-form strong { min-width: 130px; }
+.replay-permission { border: 0; margin: 0; padding: 0; min-width: 0; }
+.replay-permission:disabled { opacity: .7; }

@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 
 from app.core.config import AppConfig
 from app.core.observability import current_request_id
+from app.core.auth import outgoing_auth_headers
 from app.services.catalog_factory import create_catalog_reader
 
 
@@ -27,7 +28,7 @@ class RemoteFeatureClient:
         self.opener = opener
 
     def get(self, path: str) -> Any:
-        request = Request(self.base_url + path, headers={"Accept": "application/json", "X-Request-ID": current_request_id()})
+        request = Request(self.base_url + path, headers={"Accept": "application/json", "X-Request-ID": current_request_id(), **outgoing_auth_headers()})
         try:
             with self.opener(request, timeout=self.timeout_seconds) as response:
                 return json.loads(response.read().decode("utf-8"))
