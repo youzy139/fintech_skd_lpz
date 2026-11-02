@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 import redis
 from redis.exceptions import RedisError
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 from app.services.contracts import CatalogStorage
 from market_core.domain.sources import SourceFile
@@ -30,6 +32,7 @@ class RedisJsonCache:
             decode_responses=True,
             socket_connect_timeout=0.5,
             socket_timeout=0.5,
+            retry=Retry(NoBackoff(), 0),
         )
         return cls(client, settings["namespace"], int(settings["ttl_seconds"]))
 

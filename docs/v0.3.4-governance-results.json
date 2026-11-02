@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-11-02T13:51:24.208388+00:00",
+  "scope": "Local Docker dual API instances and isolated Redis; user accepted and reviewed audit records; no high-availability or load-performance claim",
+  "regression": {
+    "backend_passed": 113,
+    "frontend_passed": 16,
+    "python_branch_coverage_percent": 75.8,
+    "frontend_build": true
+  },
+  "integration": {
+    "checks": [
+      "real two-day replay equals accepted baseline; input flood closes WebSocket 4429",
+      "real audit request IDs and cursor pagination",
+      "two real API instances share admin budget; request 31 returns 429 on both",
+      "isolated Redis disappearance: identity reads restricted locally, writes/admin 503, liveness 200, dependent readiness 503, automatic recovery"
+    ],
+    "complete": true,
+    "sequences": [
+      1,
+      2
+    ],
+    "baseline_equal": true
+  },
+  "browser": {
+    "checks": [
+      "real administrator audit page displays persisted events",
+      "actor and action filtering show actual replay audit events"
+    ],
+    "browserErrors": []
+  },
+  "final_state": {
+    "temporary_containers_removed": true,
+    "formal_setup_required": false,
+    "formal_readiness_status": 200,
+    "user_acceptance_pending": false,
+    "user_accepted": true
+  }
+}

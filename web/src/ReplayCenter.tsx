@@ -105,6 +105,7 @@ export default function ReplayCenter() {
         setConnected(false)
         if (event.code === 4401) { window.dispatchEvent(new Event('marketlens:unauthorized')); return }
         if (event.code === 4403 || event.code === 4404) { setError(event.code === 4403 ? '没有订阅此回放的权限' : '回放会话不存在'); return }
+        if (event.code === 4429) { setError('订阅请求过于频繁，请稍后刷新重试'); return }
         reconnect = setTimeout(connect, 1000)
       }
       socket.onerror = () => setError('回放推送连接中断，将自动重连并补拉结果')

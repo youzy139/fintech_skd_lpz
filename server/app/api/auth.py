@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from app.core.auth import COOKIE, DOMAINS, auth_enabled, auth_store
@@ -86,6 +86,11 @@ def logout(request: Request, response: Response):
 @router.get("/users")
 def users():
     return enabled_store().users()
+
+
+@router.get("/audit")
+def audit_records(before: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100), actor: str | None = Query(None, max_length=40), action: str | None = Query(None, max_length=40)):
+    return enabled_store().audit_records(before, limit, actor, action)
 
 
 @router.post("/users", status_code=201)

@@ -40,3 +40,7 @@ html{scroll-behavior:smooth}section{scroll-margin-top:24px}.shell{animation:work
 .account-form strong { min-width: 130px; }
 .replay-permission { border: 0; margin: 0; padding: 0; min-width: 0; }
 .replay-permission:disabled { opacity: .7; }
+.audit-table { overflow-x: auto; margin: 20px 0; }
+.audit-table table { width: 100%; border-collapse: collapse; }
+.audit-table th, .audit-table td { padding: 12px; border-bottom: 1px solid var(--border, #284150); text-align: left; white-space: nowrap; }
+.audit-table code { font-size: 12px; }

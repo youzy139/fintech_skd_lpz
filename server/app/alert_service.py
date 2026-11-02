@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import load_config
 from app.core.auth import install_auth
+from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, error_response, install_error_handlers
 from app.services.alert import AlertService
 from app.services.remote_feature import FeatureServiceError
@@ -29,6 +30,7 @@ def create_alert_app(service: AlertService | None = None, initialize: bool = Tru
                 app.state.service.close()
 
     app = FastAPI(title="MarketLens 预警服务", version="0.3.3", lifespan=lifespan)
+    install_governance(app, config, "marketlens-alert")
     install_auth(app, config.cors_origins)
     app.state.metrics = RequestMetrics()
     requests: dict[str, deque[float]] = defaultdict(deque)

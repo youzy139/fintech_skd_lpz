@@ -69,6 +69,12 @@ class AuthStore:
                 CREATE TABLE IF NOT EXISTS auth_attempts (id TEXT PRIMARY KEY, count INTEGER NOT NULL, until INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS auth_audit (id INTEGER PRIMARY KEY, occurred INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL);
             """)
+            db.execute("BEGIN IMMEDIATE")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(auth_audit)")}
+            for name, definition in {"request_id": "TEXT NOT NULL DEFAULT ''", "status": "INTEGER NOT NULL DEFAULT 0"}.items():
+                if name not in columns:
+                    db.execute(f"ALTER TABLE auth_audit ADD COLUMN {name} {definition}")
+            db.execute("CREATE INDEX IF NOT EXISTS auth_audit_actor_id ON auth_audit(actor,id)")
             db.execute("INSERT OR IGNORE INTO auth_meta VALUES ('key', ?)", (secrets.token_hex(48),))
             db.execute("INSERT OR IGNORE INTO auth_meta VALUES ('bootstrap', ?)", (secrets.token_urlsafe(32),))
             self.key = db.execute("SELECT value FROM auth_meta WHERE name='key'").fetchone()[0]
@@ -90,8 +96,27 @@ class AuthStore:
             db.close()
 
     @staticmethod
-    def audit(db, actor, action, target):
-        db.execute("INSERT INTO auth_audit(occurred,actor,action,target) VALUES(?,?,?,?)", (int(time.time()), actor, action, target))
+    def audit(db, actor, action, target, status=200):
+        db.execute("INSERT INTO auth_audit(occurred,actor,action,target,request_id,status) VALUES(?,?,?,?,?,?)", (int(time.time()), actor, action, target, current_request_id(), status))
+
+    def record_event(self, actor, action, target, status):
+        with self.connect() as db:
+            self.audit(db, actor, action, target, status)
+
+    def audit_records(self, before=0, limit=25, actor=None, action=None):
+        clauses, parameters = [], []
+        if before:
+            clauses.append("id<?")
+            parameters.append(before)
+        for name, value in (("actor", actor), ("action", action)):
+            if value:
+                clauses.append(name + "=?")
+                parameters.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self.connect() as db:
+            rows = [dict(row) for row in db.execute("SELECT id,occurred,actor,action,target,request_id,status FROM auth_audit" + where + " ORDER BY id DESC LIMIT ?", (*parameters, limit + 1))]
+        items = rows[:limit]
+        return {"items": items, "next_before": items[-1]["id"] if len(rows) > limit else None}
 
     def status(self):
         with self.connect() as db:
@@ -138,7 +163,7 @@ class AuthStore:
             stored = row["password"] if row else password_hash("dummy-account-password", b"0" * 16)
             valid = password_matches(password, stored)
             if not row or not valid or not row["enabled"]:
-                self.audit(db, "anonymous", "login_failed", "")
+                self.audit(db, "anonymous", "login_failed", "", 401)
             else:
                 now = int(time.time())
                 identifier = secrets.token_hex(24)
@@ -234,7 +259,7 @@ def authorize(principal: Principal, path: str, method: str):
         if not principal.service or principal.username != "alert" or path != "/api/internal/alert-states":
             raise HTTPException(403, "此接口仅供指定内部服务使用")
         return
-    if path.startswith("/api/auth/users") or path == "/api/system/metrics":
+    if path.startswith(("/api/auth/users", "/api/auth/audit")) or path == "/api/system/metrics":
         if principal.role != "admin" and not principal.service:
             raise HTTPException(403, "此操作需要管理员权限")
         if path.startswith("/api/auth/") and principal.service:
@@ -300,8 +325,8 @@ class AuthMiddleware:
                 if not token:
                     raise HTTPException(401, "请先登录", headers={"WWW-Authenticate": "Bearer"})
                 principal = await asyncio.to_thread(auth_store().verify, token)
-                authorize(principal, path, method)
                 scope.setdefault("state", {})["principal"] = principal
+                authorize(principal, path, method)
                 token_context = authorization_context.set("Bearer " + token)
             if scope["type"] == "websocket" and not public:
                 async def watch():
@@ -331,6 +356,12 @@ class AuthMiddleware:
             else:
                 await self.app(scope, receive, send)
         except HTTPException as error:
+            principal = scope.get("state", {}).get("principal")
+            if principal and not principal.service and method == "POST" and path.startswith("/api/replay/sessions") and getattr(scope["app"].state, "governance_service_name", "") == "marketlens-api":
+                try:
+                    await asyncio.to_thread(auth_store().record_event, principal.username, "replay_denied", "", error.status_code)
+                except (sqlite3.Error, OSError):
+                    pass
             if scope["type"] == "websocket":
                 if not websocket_accepted:
                     await send({"type": "websocket.accept"})

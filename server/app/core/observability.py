@@ -130,24 +130,14 @@ def build_request_middleware(metrics: RequestMetrics, requests: dict[str, deque[
         started = monotonic()
         status = 500
         try:
-            now = monotonic()
-            client = request.client.host if request.client else "local"
-            recent = requests[client]
-            while recent and now - recent[0] > 60:
-                recent.popleft()
-            if len(recent) >= 240:
-                retry_after = max(1, math.ceil(60 - (now - recent[0])))
-                response = error_response(429, "rate_limited", "请求过于频繁，请稍后重试", "请求过于频繁，请稍后重试", {"Retry-After": str(retry_after)})
-            else:
-                recent.append(now)
-                try:
-                    response = await call_next(request)
-                except Exception as error:
-                    request_logger.error(
-                        json.dumps({"event": "http_request_failed", "request_id": request_id, "method": request.method, "error_type": type(error).__name__}, ensure_ascii=False),
-                        exc_info=(type(error), error, error.__traceback__),
-                    )
-                    response = error_response(500, "internal_error", "服务器内部错误", "服务器内部错误")
+            try:
+                response = await call_next(request)
+            except Exception as error:
+                request_logger.error(
+                    json.dumps({"event": "http_request_failed", "request_id": request_id, "method": request.method, "error_type": type(error).__name__}, ensure_ascii=False),
+                    exc_info=(type(error), error, error.__traceback__),
+                )
+                response = error_response(500, "internal_error", "服务器内部错误", "服务器内部错误")
             status = response.status_code
             response.headers["X-Request-ID"] = request_id
             return response

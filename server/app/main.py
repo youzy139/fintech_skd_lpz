@@ -22,6 +22,7 @@ from app.api.replay import router as replay_router
 from app.api.system import router as system_router
 from app.core.config import load_config
 from app.core.auth import auth_enabled, install_auth, require_domain
+from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, current_request_id, error_response, install_error_handlers
 from app.services.alert_proxy import forward_alert_request
 from app.services.feature_proxy import forward_feature_request, forward_feature_websocket
@@ -103,6 +104,7 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
                     app.state.alert_service.close()
 
     app = FastAPI(title=title, version="0.3.3", lifespan=lifespan)
+    install_governance(app, config, service_name)
     install_auth(app, config.cors_origins)
     app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])
     app.state.metrics = RequestMetrics()

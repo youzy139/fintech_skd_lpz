@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.api.data import router as data_router
 from app.core.config import load_config
 from app.core.auth import install_auth
+from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, install_error_handlers
 from app.services.data_catalog import DataCatalogService
 
@@ -26,6 +27,7 @@ def create_data_app(service: DataCatalogService | None = None) -> FastAPI:
                 app.state.service.close()
 
     app = FastAPI(title="MarketLens 数据服务", version="0.3.3", lifespan=lifespan)
+    install_governance(app, config, "marketlens-data")
     install_auth(app, config.cors_origins)
     app.state.metrics = RequestMetrics()
     requests: dict[str, deque[float]] = defaultdict(deque)
