@@ -119,6 +119,25 @@ def test_remote_mode_maps_transport_failure_to_stable_503(monkeypatch):
         assert "private upstream address" not in response.text
 
 
+@pytest.mark.parametrize("status,name,value", [(429, "Retry-After", "17"), (503, "Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT"), (401, "WWW-Authenticate", 'Bearer realm="marketlens"'), (405, "Allow", "GET")])
+def test_feature_proxy_preserves_upstream_control_headers(monkeypatch, status, name, value):
+    payload = b'{"detail":"upstream rejection"}'
+
+    def rejected(request, timeout):
+        headers = {"Content-Type": "application/problem+json", name: value, "Connection": "close", "X-Private-Upstream": "internal"}
+        raise HTTPError(request.full_url, status, "Rejected", headers, io.BytesIO(payload))
+
+    with remote_client(monkeypatch, rejected) as http:
+        response = http.get("/api/regimes/latest", headers={"X-Request-ID": "trace.header-feature"})
+        assert response.status_code == status
+        assert response.content == payload
+        assert response.headers[name] == value
+        assert response.headers["content-type"] == "application/problem+json"
+        assert response.headers["x-request-id"] == "trace.header-feature"
+        assert "connection" not in response.headers
+        assert "x-private-upstream" not in response.headers
+
+
 def test_remote_feature_client_and_websocket_url():
     calls = []
 

@@ -210,6 +210,25 @@ def test_alert_outage_does_not_break_market_but_fails_readiness(monkeypatch):
         assert ready.json()["checks"]["alerts"] == {"status": "unavailable"}
 
 
+@pytest.mark.parametrize("status,name,value", [(429, "Retry-After", "17"), (503, "Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT"), (401, "WWW-Authenticate", 'Bearer realm="marketlens"'), (405, "Allow", "GET")])
+def test_alert_proxy_preserves_upstream_control_headers(monkeypatch, status, name, value):
+    payload = b'{"detail":"upstream rejection"}'
+
+    def rejected(request, timeout):
+        headers = {"Content-Type": "application/problem+json", name: value, "Connection": "close", "X-Private-Upstream": "internal"}
+        raise HTTPError(request.full_url, status, "Rejected", headers, io.BytesIO(payload))
+
+    with remote_main_client(monkeypatch, rejected, lambda: {"status": "ok"}) as http:
+        response = http.get("/api/alerts", headers={"X-Request-ID": "trace.header-alert"})
+        assert response.status_code == status
+        assert response.content == payload
+        assert response.headers[name] == value
+        assert response.headers["content-type"] == "application/problem+json"
+        assert response.headers["x-request-id"] == "trace.header-alert"
+        assert "connection" not in response.headers
+        assert "x-private-upstream" not in response.headers
+
+
 def test_remote_alert_client_contract_and_validation():
     calls = []
 

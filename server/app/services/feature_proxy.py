@@ -12,6 +12,7 @@ from fastapi.websockets import WebSocketDisconnect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake
 
 from app.core.observability import current_request_id
+from app.services.proxy_headers import response_headers
 from app.services.remote_feature import FeatureServiceError
 
 
@@ -24,18 +25,18 @@ async def forward_feature_request(request: Request, base_url: str, timeout_secon
         if value:
             headers[name] = value
 
-    def send() -> tuple[int, bytes, str]:
+    def send() -> tuple[int, bytes, dict[str, str]]:
         upstream = HttpRequest(base_url.rstrip("/") + request.url.path + query, data=body or None, headers=headers, method=request.method)
         try:
             with urlopen(upstream, timeout=timeout_seconds) as response:
-                return response.status, response.read(), response.headers.get("Content-Type", "application/json")
+                return response.status, response.read(), response_headers(response.headers)
         except HTTPError as error:
-            return error.code, error.read(), error.headers.get("Content-Type", "application/json")
+            return error.code, error.read(), response_headers(error.headers)
         except (URLError, TimeoutError, OSError) as error:
             raise FeatureServiceError("特征与状态服务暂时不可用") from error
 
-    status, payload, content_type = await asyncio.to_thread(send)
-    return Response(content=payload, status_code=status, media_type=content_type)
+    status, payload, headers = await asyncio.to_thread(send)
+    return Response(content=payload, status_code=status, headers=headers)
 
 
 def websocket_url(base_url: str, path: str, query: str) -> str:
