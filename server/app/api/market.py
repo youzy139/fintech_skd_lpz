@@ -32,6 +32,11 @@ def regimes(request: Request, start: str | None = None, end: str | None = None, 
     return filtered[-limit:]
 
 
+@router.get("/api/internal/alert-states", include_in_schema=False)
+def alert_states(request: Request):
+    return current_service(request).alert_states()
+
+
 @router.get("/api/features/latest")
 def latest_features(request: Request):
     state = current_service(request).latest_state()

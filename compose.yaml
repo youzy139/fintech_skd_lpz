@@ -180,6 +180,23 @@ services:
       start_period: 30s
     networks: [marketlens]
 
+  alert-service:
+    <<: *application
+    command: ["python", "-m", "uvicorn", "app.alert_service:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *app-environment
+      FEATURE_SERVICE_URL: http://feature-service:8000
+      FEATURE_SERVICE_TIMEOUT_SECONDS: "10"
+    depends_on:
+      feature-service: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [marketlens]
+
   backend:
     <<: *application
     environment:
@@ -188,12 +205,15 @@ services:
       DATA_SERVICE_TIMEOUT_SECONDS: "5"
       FEATURE_SERVICE_URL: http://feature-service:8000
       FEATURE_SERVICE_TIMEOUT_SECONDS: "10"
+      ALERT_SERVICE_URL: http://alert-service:8000
+      ALERT_SERVICE_TIMEOUT_SECONDS: "5"
     ports:
       - "8000:8000"
     depends_on:
       bootstrap: {condition: service_completed_successfully}
       data-service: {condition: service_healthy}
       feature-service: {condition: service_healthy}
+      alert-service: {condition: service_healthy}
       mysql: {condition: service_healthy}
       clickhouse: {condition: service_healthy}
       minio: {condition: service_healthy}

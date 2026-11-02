@@ -9,7 +9,7 @@
 - `flink/Dockerfile`：Maven 构建 Java 17 作业，Flink 2.2.1 运行镜像和持久检查点目录。
 - `clickhouse/Dockerfile`：从 ClickHouse 官网固定版本安装包构建，强制 SHA-512 校验；当前容器为 25.8.4.13，已完成全量兼容性验收。
 - `minio/Dockerfile`：官方历史镜像不可拉取，因此按既有本地验收方式，从 `RELEASE.2025-09-07T16-13-09Z` 固定源码构建，非 root 运行。
-- `compose.yaml`：`v0.3.3` 验收时为 MySQL、ClickHouse、Redis、MinIO、Kafka、初始化、后端和前端八个默认服务；`v0.3.4` 增加独立数据服务和特征状态服务后为十个。
+- `compose.yaml`：`v0.3.3` 验收时为 MySQL、ClickHouse、Redis、MinIO、Kafka、初始化、后端和前端八个默认服务；`v0.3.4` 增加独立数据、特征状态与预警服务后为十一个。
 - `compose.dev.yaml`：仅基础设施，Python/React 可继续本地热更新；Flink 不是默认开发依赖。
 - `compose.flink.yaml`：可选 JobManager、TaskManager、Kafka 主题初始化和一次性 JAR 上传；自动创建输入、输出和迟到主题并设置 `retention.ms=-1`。后端按回放运行通过 REST 启动独立作业，不再由 Compose 启动一个共享全局水位线作业。
 - `deploy/config/container.json`、`.env.example`：无密钥配置与空模板；真实 `.env` 不进入 Git 或镜像。
@@ -129,5 +129,5 @@ python -m app.services.online_publish --verify-only
 
 1. 性能仍不能按正式版目标宣称达标：既有 ClickHouse 冷查询和 Redis 热查询测量偏慢，共享客户端串行化后需要重新测量 p50/p95/p99、并发和资源占用。
 2. 长文件名预处理是 Windows 原始数据的必要步骤；正式交付必须保留清晰说明并验证用户从准备数据到启动的完整流程。
-3. 微服务、完整认证授权、分布式限流、LLM 助手、宏观/文本进入分析或证据链仍未实现，属于后续版本，不影响本次部署事实，但意味着 `v1.0.0` 尚不能发布。
+3. 完整 API Gateway、认证授权、分布式限流、LLM 助手、宏观/文本进入分析或证据链仍未实现，属于后续版本，不影响本次部署事实，但意味着 `v1.0.0` 尚不能发布。
 4. 用户已确认体验并同意发布 `v0.3.3`；后续 `v0.3.4` 首批契约、观测和性能基线另见 `docs/v0.3.4-observability.md`。

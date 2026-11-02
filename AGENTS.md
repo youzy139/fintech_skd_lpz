@@ -1,313 +1,200 @@
 # AGENTS.md
 
-## 项目概览
+## 1. 项目定位与当前状态
 
-本目录是 **2026 年上海科技大学第一届金融科技竞赛参赛项目**，产品名为 **MarketLens**，当前版本为 `v0.3.3` 测试版本。项目基于多资产行情、宏观指标、事件日历和舆情文本，建设市场状态（Market Regime）监控平台，覆盖数据接入、特征计算、状态识别、风险预警和可视化。
+本目录是 **2026 年上海科技大学第一届金融科技竞赛参赛项目**，产品名 **MarketLens**。项目使用多资产行情、宏观指标、事件日历和舆情文本，建设市场状态（Market Regime）监控平台。
 
-当前已经实现的本地闭环：
+核心业务链路：
 
-- 发现并导入全部 1,046 个赛题输入文件，本地 SQLite 中共有 1,556,492 条逻辑记录，当前文件级导入错误为 0。
-- 读取 39 个可用资产序列，保留原始交易日历、`close`/`yield` 字段差异及数据质量统计。
-- 计算市场收益、年化波动率、动量、趋势和资产相关性，使用滚动历史窗口内的 StandardScaler、PCA 与 KMeans 逐日识别状态。
-- 生成高波动、相关性异常和状态切换预警。
-- 提供 REST、GraphQL、WebSocket、OpenAPI 和简单进程内限流；真实历史回放支持本地直连、Kafka 事件和 Flink 窗口三种输入通道，最终由同一 Python 模型计算特征、状态和预警。
-- Kafka 4.3.2 单节点 KRaft 与 Flink 2.2.1 单 JobManager/TaskManager 已实际联通。每次回放运行使用独立 Java 作业和独立事件时间水位线，完成 1d 窗口、去重和迟到分流，使用检查点与 Kafka 事务输出；连续运行、重开和 Savepoint 停止与恢复已验证。
-- React 工作台包含网站首页、市场总览、状态分析、历史回放、特征分析、预警中心和数据中心；首页使用轻量摘要，各主要页面按需加载。数据中心提供预聚合概览、时间覆盖、字段目录、友好内容、服务端分页和安全的原始字段核对；最多 5 个标签支持并集/交集、去重总数和组合筛选。
-- 已有后端 pytest、前端 Vitest、分支覆盖率配置和生产构建流程。
+> 数据按事件时间进入 → 数学模型计算特征与市场状态 → 确定性规则生成预警 → 前端展示证据与分析
 
-**当前实现不是完整分布式系统。** 本地默认 SQLite，可通过 `STORAGE_MODE=distributed` 显式切换 ClickHouse 主读；MySQL/MinIO 已进入发布链路，Redis 可回源。ClickHouse 按来源代次在线发布已实现并完成真实小文件重发。`v0.3.4` 已加入独立数据目录服务和特征状态服务，主后端通过兼容代理复用原 REST、GraphQL、WebSocket 契约；预警仍随特征状态应用，完整认证授权和 LLM 助手未落地。Docker Compose 默认服务由此增加为十个，既有全量导入、对象回读、Kafka/Flink 回放、Nginx WebSocket、Chrome、故障恢复及干净源码目录与空卷复验结论仍属于对应历史版本。真实历史回放不等于实时行情，不得把竞赛目标或性能指标描述成已经达标。
+数值特征和状态必须由数学模型计算，预警必须由确定性规则产生。规划中的 LLM 只负责文本理解、证据整合与解释，不能决定状态、预警等级、回放结果或自动交易，也不能成为核心链路的单点依赖。
 
-`v0.3.0` 完成本地回放，`v0.3.1` 完成 Kafka，`v0.3.2` 完成 Flink，当前最新版本标签 `v0.3.3` 完成分布式存储、在线增量发布与容器部署。`v0.3.4` 已完成首批契约、观测、Flink 连续回放修复、会话持久化、数据目录与特征状态独立部署，以及跨进程回放恢复和 WebSocket 兼容；后端 82 项、前端 11 项测试通过，覆盖率 74.38%。完整版本尚未打标签，下一阶段是预警服务拆分和治理；详见 `docs/v0.3.4-plan.md`、`docs/v0.3.4-observability.md` 和 `docs/v0.3.4-replay-persistence.md`。
+当前最新版本标签为 `v0.3.3`，`v0.3.4` 正在分批开发，不能提前宣称完整版本完成或创建新标签。当前基线：
 
-核心业务流程为“状态判断 → 预警决策 → 分析建议”。数值特征与状态由数学模型计算，预警由确定性规则产生；规划中的 LLM 只负责文本理解、证据整合与解释，不应成为核心链路的单点依赖。
+- 已导入 1,046 个赛题输入文件，共 1,556,492 条逻辑记录；39 个资产序列可用，原始文件保持不变。
+- 已实现行情特征、walk-forward 状态识别、规则预警，以及本地直连、Kafka 事件、Flink 窗口三种真实历史回放通道。
+- 已有 React 首页与工作台，覆盖市场、状态、回放、特征、预警和数据中心；数据中心支持预聚合概览、服务端分页、原始字段核对及最多 5 个标签的组合筛选。
+- Kafka 4.3.2 单节点 KRaft 与 Flink 2.2.1 单 JobManager/TaskManager 已联通；每轮回放使用独立作业、事件时间水位线、检查点与 Kafka 事务输出。
+- MySQL、ClickHouse、Redis、MinIO 已进入实际存储或发布链路；ClickHouse 支持按来源代次在线增量发布。
+- 回放会话、逐日结果、幂等操作与恢复状态已持久化，支持断线补拉和跨进程恢复。
+- `app.data_service:app` 独立提供数据目录；`app.feature_service:app` 独立持有市场模型和回放；`app.alert_service:app` 根据特征状态独立重建历史预警。主后端通过兼容代理保留原 REST、GraphQL、WebSocket 与 OpenAPI 契约。默认 Compose 为十一个服务。
+- 当前后端 91 项测试、前端 11 项测试通过，Python 分支覆盖率 75.25%。
 
-## 技术栈与关键配置
+**当前不是完整微服务、高可用或实时行情系统。** 历史预警查询已独立部署，逐日回放仍在特征服务内调用同一纯规则；完整 API Gateway、认证授权、分布式限流、可配置规则与 LLM 助手尚未完成。单节点 Kafka/Flink、历史回放和兼容代理不得夸大为生产级能力。详细现状与验收记录见：
 
-| 文件 | 实际用途 |
-| --- | --- |
-| `environment.yml` | Conda 环境 `fintech`，仅固定 Python 3.12 和 pip |
-| `requirements.txt` | 固定版本的运行依赖：FastAPI、Uvicorn、aiokafka、NumPy、pandas、scikit-learn、Strawberry GraphQL、openpyxl、PyMySQL、minio、clickhouse-connect、redis 等 |
-| `requirements-dev.txt` | 引入运行依赖，并增加 pytest、pytest-cov、httpx |
-| `pyproject.toml` | 只配置 pytest 路径和 Coverage；不是 Python 包构建配置，也不声明项目依赖 |
-| `server/config.example.json` | 无密钥运行配置模板，包含数据目录、SQLite、模型、回放、Kafka、Flink、MySQL、MinIO、ClickHouse、Redis 和 CORS 参数 |
-| `flink/pom.xml` | Flink 2.2.1、Kafka Connector 5.0.0、Java 17 与 Maven Shade 构建 |
-| `web/package.json` | React 19、TypeScript 5.7、Vite 6、ECharts 5、Vitest 3 及前端脚本 |
-| `web/package-lock.json` | npm 锁文件，锁文件版本为 3 |
-| `web/tsconfig.json` | TypeScript 严格模式、ES2022、Bundler 模块解析、`noEmit` |
-| `web/vite.config.ts` | React 插件、开发代理和 Vitest 的 jsdom 配置 |
-| `.gitignore` | 忽略原始数据、本地密钥、私有配置、SQLite、依赖目录和构建/测试产物 |
+- `README.md`：项目定位、技术线和启动方式。
+- `docs/architecture.md`：目标架构与当前实现，阅读时注意区分。
+- `docs/v0.3.4-plan.md`：当前版本任务、边界和验收要求。
+- `docs/v0.3.4-observability.md`：契约、观测与性能基线。
+- `docs/v0.3.4-replay-persistence.md`：回放持久化与恢复记录。
+- `docs/v0.3.x-plan.md`：阶段目标及 `v1.0.0` 合规门槛。
 
-后端使用 Python 3.12 和标准库 `sqlite3`，不依赖 ORM。前端使用函数组件和 React Hooks，无路由库、状态管理库或独立 CSS 框架。当前没有配置 Ruff、Black、mypy、ESLint、Prettier，也没有前端覆盖率脚本；不要声称这些检查已存在。
+## 2. 技术栈与模块边界
 
-`server/app/core/config.py` 优先读取 `MARKETLENS_CONFIG` 指定文件，其次是被 Git 忽略的 `server/config.json`，最后回退 `server/config.example.json`；`DATA_ROOT`、`DATABASE_PATH` 和各服务地址可用环境变量覆盖。相对路径基于所选配置文件目录。默认模型参数为：分析起点 2015-01-01、最少历史 504 个有效特征日、训练窗口 756 日、每 63 日重训、20 日波动窗口、60 日动量窗口、3 个聚类、随机种子 42。`STORAGE_MODE=local|distributed` 显式选择目录主读，distributed 必须同时 `CLICKHOUSE_ENABLED=true`，否则拒绝启动；本地默认 SQLite，distributed 使用 ClickHouse，不会静默切换。Kafka 默认关闭，用 `KAFKA_ENABLED=true` 开启，地址与主题由 `KAFKA_BOOTSTRAP_SERVERS`、`KAFKA_TOPIC` 覆盖；`aiokafka` 生产者没有公开 `retries` 参数。Flink 默认关闭，用 `FLINK_ENABLED=true` 开启，`FLINK_REST_URL` 默认 `http://127.0.0.1:8081`，Flink 模式要求 Kafka 同时启用；`FLINK_CHECKPOINT_DIR`、`FLINK_CHECKPOINT_INTERVAL_MS`、`FLINK_JOB_START_TIMEOUT_MS` 和 `FLINK_JOB_STOP_TIMEOUT_MS` 控制作业存储与生命周期。MySQL/MinIO/ClickHouse/Redis 默认关闭，密码分别通过 `MYSQL_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`CLICKHOUSE_PASSWORD`、`REDIS_PASSWORD` 或私有配置注入，示例配置不得包含真实凭据。Redis 默认 `127.0.0.1:6379`、TTL 60 秒，缓存键包含当前发布代次摘要和全部查询参数，故障自动回到显式主存储。`DATA_SERVICE_URL` 默认为空并保持单体目录访问；设置后通过 `RemoteCatalogClient` 调用独立数据服务，`DATA_SERVICE_TIMEOUT_SECONDS` 默认 5 秒。`FEATURE_SERVICE_URL` 默认为空并保持本地模型与回放；设置后主后端通过 `RemoteFeatureService`、REST 代理和 WebSocket 中继接入独立特征状态服务，`FEATURE_SERVICE_TIMEOUT_SECONDS` 默认 10 秒。远程调用均不自动重试。数据服务和特征服务自身不设置 `FEATURE_SERVICE_URL`，避免自调用。
-
-## 目录与模块职责
+- Python 3.12、FastAPI、Uvicorn、Strawberry GraphQL、NumPy、pandas、scikit-learn；数据库访问使用标准库 `sqlite3` 和对应服务客户端，不使用 ORM。
+- React 19、TypeScript 5.7、Vite 6、ECharts 5、Vitest 3；使用函数组件和 Hooks，无路由库、状态管理库或独立 CSS 框架。
+- Flink 作业使用 Java 17、Flink 2.2.1、Kafka Connector 5.0.0 和 Maven Shade。
+- 依赖固定在 `requirements.txt`、`requirements-dev.txt`、`web/package-lock.json` 和 `flink/pom.xml`。不要假设未声明的库或工具已经存在。
+- 当前没有 Ruff、Black、mypy、ESLint、Prettier、CI 工作流、前端覆盖率脚本或持续浏览器 E2E；不要声称这些检查已存在。
 
 ```text
-.
-├── market_core/                  # 独立领域与算法核心，不依赖 FastAPI、server 或 web
-│   ├── domain/
-│   │   ├── market.py            # 资产、数据质量和预警数据类
-│   │   ├── events.py            # Kafka 日批次事件结构与校验
-│   │   ├── replay.py            # 回放时钟、逐日输入与结果数据类
-│   │   ├── sources.py           # 来源文件、来源记录和导入结果数据类
-│   │   └── tags.py              # 确定性主题关键词与结构字段标签规则
-│   ├── ingestion/
-│   │   ├── assets.py            # 资产目录读取、行情校验、重复日期与非法行处理
-│   │   └── sources.py           # 固定数据源发现及 CSV、Excel、Markdown 流式适配
-│   └── models/
-│       ├── features.py          # 多资产行情面板与市场特征
-│       ├── regime.py            # walk-forward 状态识别及连续回放识别会话
-│       ├── replay.py            # 可见历史、逐日特征/状态/预警计算
-│       └── alerts.py            # 高波动、相关性异常和状态切换规则
-├── server/
-│   ├── app/
-│   │   ├── api/                 # system、market、data、replay 路由与请求契约
-│   │   ├── core/config.py       # 配置加载、路径解析和 Kafka 环境变量覆盖
-│   │   ├── core/observability.py # 请求 ID、错误契约、结构化日志与进程内指标
-│   │   ├── services/
-│   │   │   ├── import_data.py   # 全量/增量导入及旧库统计回填入口
-│   │   │   ├── contracts.py     # 目录读写与快照存储协议
-│   │   │   ├── cache.py         # Redis JSON 缓存、内容版本键与故障回源包装
-│   │   │   ├── catalog.py       # 文件、记录、预聚合概览和导入批次的 SQLite 存取
-│   │   │   ├── catalog_factory.py # 本地/分布式目录与远程客户端选择
-│   │   │   ├── data_catalog.py  # 独立数据目录应用服务
-│   │   │   ├── remote_catalog.py # 有界超时、请求 ID 透传的目录 HTTP 客户端
-│   │   │   ├── remote_feature.py # 特征状态查询与 GraphQL/健康适配
-│   │   │   ├── feature_proxy.py # 市场/回放 REST 代理与 WebSocket 双向中继
-│   │   │   ├── migration_baseline.py # SQLite 全量内容摘要、查询基线与差异核对
-│   │   │   ├── mysql_metadata.py # MySQL 元数据 schema 迁移、复制与对账
-│   │   │   ├── object_archive.py # MinIO 内容寻址归档与回读哈希
-│   │   │   ├── stage_b_migration.py # 阶段 B 幂等迁移与只读校验入口
-│   │   │   ├── clickhouse_store.py # ClickHouse 主读、当前代次视图、发布指针和查询锁
-│   │   │   ├── clickhouse_migration.py # 分批迁移、派生快照与双读对照
-│   │   │   ├── online_publish.py  # 按来源暂存、内容核对和在线代次发布
-│   │   │   ├── prepare_container_data.py # 生成短文件名摘要副本并保留原名元数据
-│   │   │   ├── stage_c_migration.py # 阶段 C 全量重建与只读校验入口
-│   │   │   ├── kafka.py         # aiokafka 生产消费、去重、乱序缓存、位点提交和阶段计时
-│   │   │   ├── flink.py         # 每运行作业提交、首检查点就绪、健康检查与 Savepoint 生命周期
-│   │   │   ├── market.py        # 应用组装：加载资产、计算特征/状态/预警并保存快照
-│   │   │   ├── replay.py        # 日期输入、三通道会话、模型重建、恢复控制与订阅
-│   │   │   ├── replay_store.py  # SQLite 会话、逐日结果、当前指针与幂等操作持久化
-│   │   │   ├── replay_benchmark.py # 固定区间的三通道性能基准与结果容差核对
-│   │   │   └── storage.py       # quality、states、alerts 快照写入
-│   │   ├── main.py              # 单体或兼容代理组装，GraphQL 组合与 WebSocket 中继
-│   │   ├── data_service.py      # 独立数据目录服务，不加载市场模型或回放管理器
-│   │   └── feature_service.py   # 独立特征状态与回放服务
-│   ├── migrations/              # MySQL 与 ClickHouse 版本化 DDL
-│   ├── tests/                   # 核心、导入、SQLite、存储契约、对象归档、ClickHouse、回放、Kafka 和接口测试
-│   ├── config.example.json      # 可提交的配置模板
-│   ├── kafka.example.properties # 单节点 KRaft 配置模板
-│   ├── start-flink.sh           # Windows Git Bash 本地 Flink 集群启动
-│   ├── config.json              # 可选本地私有配置，Git 忽略
-│   └── data/                    # SQLite、Kafka、Flink 和验收运行时产物，Git 忽略
-├── flink/
-│   ├── pom.xml                  # Java 17、Flink 2.2.1 与 Kafka Connector 5.0.0 构建
-│   └── src/main/java/           # Kafka 日窗口、去重、水位线、迟到和检查点作业
-├── web/
-│   ├── src/App.tsx              # 工作台外壳及各主要页面按需加载
-│   ├── src/Landing.tsx          # 产品首页与轻量摘要
-│   ├── src/ReplayCenter.tsx     # 回放控制、进度、当日结果和 WebSocket 订阅
-│   ├── src/SourceCatalog.tsx    # 数据概览、标签筛选、友好内容、分页和原始核对
-│   ├── src/Chart.tsx            # 按需注册 ECharts 的图表包装组件
-│   ├── src/api.ts               # fetch 封装
-│   ├── src/types.ts             # API 数据类型
-│   ├── src/motion.ts            # 回到顶部动画与减少动态效果适配
-│   ├── src/styles.css           # 集中样式
-│   └── src/*.test.tsx           # Vitest + Testing Library 测试
-├── docs/architecture.md         # 目标架构与当前实现的混合设计文档，阅读时注意区分
-├── README.md                    # 启动、测试、版本和项目定位
-└── 上科大数据合集/              # 原始竞赛输入，Git 忽略
+market_core/
+  domain/                 # 资产、事件、回放、来源、标签等领域结构
+  ingestion/              # 行情与原始文件解析
+  models/                 # 特征、状态、回放、确定性预警；不依赖 server 或 web
+server/app/
+  api/                    # system、market、data、replay 路由与请求契约
+  core/                   # 配置、请求 ID、错误契约、日志与进程内指标
+  services/               # 目录、存储、缓存、远程客户端、回放与应用组装
+  main.py                 # 单体或兼容代理入口，组合 GraphQL/OpenAPI
+  data_service.py         # 独立数据目录服务，不加载模型或回放
+  feature_service.py      # 独立特征状态与回放服务
+  alert_service.py        # 独立历史预警查询服务
+server/tests/             # pytest 与接口/服务契约测试
+flink/                    # Java 事件时间窗口、去重、迟到与容错作业
+web/src/                  # React 页面、API 类型、图表与 Vitest 测试
+docs/                     # 架构、部署、阶段计划和验收记录
+上科大数据合集/            # 原始竞赛输入，Git 忽略
 ```
 
-`server/app/api/` 在 `v0.3.4` 首批实施中已拆出 `system.py`、`market.py`、`data.py` 和 `replay.py`。`data_service.py` 独立组装数据目录，`feature_service.py` 独立持有市场模型和回放管理器。主后端设置 `FEATURE_SERVICE_URL` 后通过 `RemoteFeatureService`、REST 代理和 WebSocket 中继保持原协议，不再创建第二份模型；GraphQL 组合两个服务，OpenAPI 复用完整特征服务 schema。预警仍随特征状态应用提供，尚未独立部署。
+职责约束：
 
-## 当前运行架构与数据流
+- 核心领域、解析和算法放在 `market_core`，禁止反向依赖 `server` 或 `web`。
+- `server` 负责配置、服务组装、运行存储和接口，不承接新的领域算法。
+- 前端只通过 API 获取真实状态，不硬编码市场判断；ECharts 按需注册并处理销毁和尺寸变化。
+- 数据服务拥有文件、记录、标签、导入批次与目录缓存；特征状态服务拥有模型、状态历史和回放会话；预警服务根据特征状态重建历史预警并独立提供查询。回放预警仍在特征服务内调用同一纯规则，不增加逐日网络依赖。
+- 主后端设置 `FEATURE_SERVICE_URL` 后不得再创建第二份模型或回放管理器。前端与 Nginx 仍只访问主后端，兼容代理不等于完整 API Gateway。
+- 本地不配置远程服务 URL 时保留原单体模式，作为开发、算法回归与回退路径。
 
-1. `python -m app.services.import_data` 按固定清单发现资产 CSV、4 个 Excel 工作簿、科技帖子 CSV、新闻 CSV 和研究摘要 Markdown。
-2. `CatalogStore` 将文件元数据写入 `source_files`，将每条原始记录以 JSON 写入 `source_records`，同步累计 `source_daily_stats`、`source_fields`、`source_record_tags` 和 `source_tag_stats`，并在 `import_batches` 记录批次。默认每 1,000 条逻辑记录提交一次；Excel 使用只读模式。文件大小、修改时间和成功状态均未变化时跳过重导。记录冗余保存 `kind`，配合日期与标签索引避免大表全排序；旧库打开时自动补充字段和索引，`--rebuild-stats` 同时重建统计与标签。标签由 `market_core/domain/tags.py` 的确定性关键词和结构字段生成，仅用于检索，不表示情绪或投资判断。标签关联表冗余保存事件日期，筛选时直接复用标签计数与日期索引；本地共享 SQLite 连接通过可重入锁串行访问，避免并发请求互相干扰游标。
-3. `MarketService.initialize()` 在后端启动时重新读取原始资产文件，计算全部历史特征、状态和预警；结果保存在内存中供接口查询，同时写入 SQLite 的 `snapshots` 表。
-4. `SnapshotStore` 当前只提供保存和关闭方法，没有快照读取或启动恢复逻辑；不能把快照描述成已经生效的模型缓存。
-5. 首页只请求轻量摘要；市场页面进入工作台后加载市场数据，数据中心独立请求预聚合概览和当前页记录，文件目录只在展开时加载。GraphQL 当前页面没有使用；历史回放页通过 WebSocket 接收真实逐日结果。
-6. `ReplayManager` 创建独立会话，`ReplayDataCatalog` 只查询当前事件日期的行情，`HistoricalMarketReplay` 为每个会话维护可见历史并重新计算特征、状态和预警。会话保留事件时间与 UTC 处理时间，完成状态只在最后结果保存后发布；宏观与文本尚未进入回放模型。
-7. Kafka 通道以 `event_date` 为 key 发送 `market.replay.day.v1` 日批次，包含会话、运行、事件和处理时间。消费者按运行过滤、按事件 ID 去重、缓存乱序，处理成功后手动提交连续位点；其他运行消息的跳过提交也会计入 `commit_count`。
-8. Flink 每次运行由后端启动独立作业和消费者组，source 先过滤当前会话与运行，再建立最多 2 天乱序的事件时间水位线和 1d 窗口。后端等待 RUNNING 与首检查点后生产；控制事件以最后事件日期加 3 天关闭窗口，更晚事件进入迟到主题。Kafka 事务输出到 `marketlens.features.days.v1`，后端以 `read_committed` 消费，结束只停止本作业并生成 Savepoint。三种通道共用 Python 模型，Kafka/Flink 不代替原始持久化。
-9. `online_publish` 将变化来源按新代次写入 ClickHouse 暂存数据，核对元数据、计数、记录摘要与标签后更新 `catalog_publications`；六个 `active_source_*` 视图只读最新生效代次。失败保留旧代次，MySQL 元数据与 MinIO 对象先于发布核对。本地默认 SQLite，distributed 主读为 ClickHouse，Redis 故障不切换事实源。共享 ClickHouse 客户端的高层 Web 查询使用可重入锁，避免同会话并发错误。
-10. Windows 原始研究摘要含超过 Linux 255 字节限制的文件名，必须先由 `prepare_container_data` 生成短文件名副本及 `.source-name.json`，解析器据此恢复原始日期、机构、标题与正文；原文件不改写。生产由非特权 Nginx 同源托管并代理 `/api`、`/graphql` 和 `/ws`。`v0.3.3` 的默认八个容器与可选 Flink 已真实验收；`v0.3.4` 新增独立数据服务后默认九个服务，跨进程查询与停止/恢复已验收。
-11. `DATA_SERVICE_URL` 为空时 `MarketService` 直接访问本地/分布式目录；设置后只由主后端通过内部 HTTP 调用数据服务。数据服务独占目录缓存，不加载行情模型或回放管理器；调用透传请求 ID，超时或不可用映射为 503，不做自动重试。前端仍使用原主后端地址。
+## 3. 配置与运行模式
 
-### 特征、模型与预警口径
+`server/app/core/config.py` 按以下顺序加载配置：
 
-- 只有 `field == "close"` 的资产进入价格收益和相关性计算，`yield` 序列不当作价格。
-- 不同资产按日期外连接，不统一填充交易日。收益为正价格的一阶对数差分，市场收益是当日资产收益的横截面均值。
-- 波动率为市场收益的滚动标准差乘以 `sqrt(252)`；动量为各资产 60 日涨跌幅的均值；趋势为价格相对 20 日均线的偏离均值；相关性为 60 日窗口内资产收益成对相关系数的均值。
-- 状态模型实际使用 `market_return`、`volatility`、`momentum`、`correlation` 四个特征；`trend` 和 `sample_count` 随结果输出，但不参与当前 PCA/KMeans 拟合。
-- 每个识别日的训练切片都排除当日，模型版本记录训练数据截止日。扩展未来数据不应改变已经产生的历史结果。
-- 状态名称由聚类中心的确定性规则映射，并带聚类编号；贡献值是当前特征相对训练窗口的标准化偏离，不表示因果贡献。
-- 高波动和高相关性预警使用此前至少 60 个状态日的历史分位数；状态标签变化会生成状态切换预警。
-- 回放首日之前的可见历史只用于滚动窗口和模型预热，之后逐日追加输入；相同输入和配置的状态、特征与预警必须与原 walk-forward 结果一致，实际处理时间除外。
+1. `MARKETLENS_CONFIG` 指定文件；
+2. 被 Git 忽略的 `server/config.json`；
+3. `server/config.example.json`。
 
-### 对外接口
+相对路径基于所选配置文件目录。`DATA_ROOT`、`DATABASE_PATH` 和服务地址可由环境变量覆盖。示例配置不得包含真实凭据。
 
-- REST：`/api/health`、`/api/home/summary`、`/api/assets`、`/api/assets/{code}/series`、`/api/regimes/latest`、`/api/regimes`、`/api/features/latest`、`/api/alerts`、`/api/data/quality`、`/api/data/version`、`/api/data/summary`、`/api/data/overview`、`/api/data/tags`、`/api/data/records`、`/api/data/files`、`/api/data/files/{source_id}/records`。数据服务只提供数据、健康和自身指标接口；主后端远程目录失败返回 503 `data_service_unavailable`。
-- 系统观测：`/api/health/ready` 检查市场快照与目录可读性；`/api/system/metrics` 提供当前进程的路由延迟分位数、错误数、WebSocket 连接和回放会话数，不是跨实例指标。HTTP 响应带 `X-Request-ID`；错误保留 `detail`，并增加 `error.code`、`error.message`、`error.request_id`。日志不记录查询参数或正文。
-- 回放 REST：`/api/replay/calendar`、`/api/kafka/status`、`/api/flink/status`、`/api/replay/sessions`、`/api/replay/sessions/current`、`/api/replay/sessions/{id}`，以及会话的 `results`、`start`、`pause`、`resume`、`speed`、`restart` 子路径。`results` 通过 `after` 和 `limit` 按序列补拉，单页最多 100 条。创建与控制接受 `Idempotency-Key`。快照包含 `run_id`、`latest_sequence`、`recovery`、`flink_job_id`、`savepoint_path` 和真实 `timing`。
-- GraphQL：`/graphql`，当前查询字段只有 `assets`、`latestState`、`sourceSummary`。
-- WebSocket：`/ws/replay/{session_id}` 发送会话快照和真实逐日计算结果；旧 `/ws/replay` 仍按预计算历史状态发送最多 100 条消息，仅保留作回归对照。两者都不是 Kafka/Flink 实时流。
-- OpenAPI：FastAPI 自动提供 `/docs`。
-- 限流：按客户端 IP 在单进程内限制为每 60 秒 240 个 HTTP 请求，超出返回 429；它不是分布式限流，也不覆盖 WebSocket 消息级控制。
+关键模式：
 
-## 构建、运行与部署
+- `STORAGE_MODE=local|distributed`：默认本地 SQLite；distributed 必须同时 `CLICKHOUSE_ENABLED=true`，主读 ClickHouse，不会静默切换事实源。
+- `KAFKA_ENABLED=true` 开启 Kafka；`FLINK_ENABLED=true` 开启 Flink，且必须同时启用 Kafka。
+- MySQL、MinIO、ClickHouse、Redis 默认关闭；密码只通过环境变量或私有配置注入。
+- Redis 故障可回源到显式主存储，缓存键必须包含数据版本和查询参数。
+- `DATA_SERVICE_URL` 为空时使用本地/分布式目录；设置后通过 `RemoteCatalogClient` 调用数据服务。
+- `FEATURE_SERVICE_URL` 为空时使用本地模型与回放；设置后通过远程客户端、REST 代理和 WebSocket 中继调用特征状态服务。
+- `ALERT_SERVICE_URL` 在主后端远程模式下启用独立预警代理和 readiness 检查；预警服务自身通过 `FEATURE_SERVICE_URL` 读取预警输入。数据服务和特征服务自身不得设置 `FEATURE_SERVICE_URL`，避免自调用。
+- 远程调用必须有界超时，不做无界自动重试。预警输入中的非有限数值以 `null` 传输，规则按缺失值处理，不得输出非法 JSON `NaN`。
 
-本地文档以 **Windows + Git Bash + Conda + Node.js** 为基准。在仓库根目录执行后端命令，在 `web/` 执行前端命令。
+默认模型口径：分析起点 2015-01-01，最少 504 个有效特征日，训练窗口 756 日，每 63 日重训，20 日波动窗口，60 日动量窗口，3 个聚类，随机种子 42。
 
-### 首次安装
+## 4. 数据、模型与时间口径
+
+### 原始数据
+
+- 资产目录 40 条，39 个有效行情 CSV 共 314,318 条有效行情；“全球高收益债”没有行情文件。
+- `指标集1_数据.xlsx` 有 31 个 sheet，字段经过脱敏，不得编造指标含义或强制转成日频。
+- 新闻 CSV 约 1.83 GiB、900,704 条逻辑记录，无表头且正文含 HTML、链接和嵌入换行，必须使用标准 CSV 解析器流式读取，不能按物理行解析或擅自命名字段。
+- 科技帖子、公众号、日历、商品成交额和研究摘要保留原始字段、来源和事件日期；研究摘要从文件名提取日期、机构与标题。
+- 文件数、逻辑记录数、资产有效行情数是不同指标，不得混用。
+
+### 数据处理
+
+- 原始文件只读；除非任务明确要求，不得重写、覆盖或批量移动。
+- 保留原始 payload、来源文件和事件时间，派生数据与原始层分开。
+- CSV 使用 UTF-8/UTF-8-SIG；Excel 第一行是表头，指标工作簿必须处理全部 sheet。大型文件分批读取和写入。
+- 标签由确定性关键词和结构字段生成，只用于检索，不代表情绪或投资判断。
+- Windows 原始研究摘要可能超过 Linux 文件名长度限制；容器部署前用 `prepare_container_data` 生成短文件名副本及名称元数据，不改原文件。
+
+### 特征与状态
+
+- 只有 `field == "close"` 的资产进入价格收益与相关性计算；`yield` 是百分数，不是价格或小数。
+- 不同资产按日期外连接，不统一填充交易日。收益为正价格的一阶对数差分，市场收益为当日资产收益横截面均值。
+- 波动率为市场收益滚动标准差乘 `sqrt(252)`；动量为 60 日涨跌幅均值；趋势为价格相对 20 日均线的偏离均值；相关性为 60 日资产收益成对相关系数均值。
+- 当前 PCA/KMeans 只使用 `market_return`、`volatility`、`momentum`、`correlation`；`trend` 和 `sample_count` 不参与拟合。
+- 每个识别日的训练切片必须排除当日，模型版本记录训练截止日；新增未来数据不得改变既有历史结果。
+- 状态名称由聚类中心确定性映射；贡献值是标准化偏离，不是因果贡献。
+- 高波动与高相关性预警使用此前至少 60 个状态日的历史分位数；状态标签变化生成切换预警。
+
+### 回放
+
+- 完整入库不等于模型可见未来。任何一天只能读取当前事件时间及此前已发布的数据。
+- 区分 `event_time` 与实际处理时间；宏观按公布时间进入，文本按自身发布时间进入，不得把统计期当成发布日期。
+- 回放首日之前的历史只用于滚动窗口和模型预热；相同输入与配置的特征、状态、预警必须与原 walk-forward 结果一致。
+- 三种通道共用 Python 模型；Kafka/Flink 不代替原始持久化，也不另写一套 Java 金融算法。
+- WebSocket 只推送快照和增量结果，断线通过会话 ID 与序列号补拉，不重复执行模型。
+- Flink 小数据逐日回放慢于本地是已知现象。优化须先测阶段耗时，不能跳过窗口、关闭必要容错或读取未来数据。
+
+## 5. 接口与前端约定
+
+- 主要 REST 包括健康/就绪、首页摘要、资产、状态、特征、预警、数据质量与目录、回放日历/会话/控制/结果，以及 Kafka/Flink 状态。
+- GraphQL `/graphql` 当前只有 `assets`、`latestState`、`sourceSummary`。
+- `/ws/replay/{session_id}` 推送真实逐日回放；旧 `/ws/replay` 仅作预计算状态回归对照。两者都不是实时行情流。
+- OpenAPI 由 FastAPI 在 `/docs` 提供。主后端代理须保留查询、正文、幂等键、状态码、错误结构和 WebSocket 关闭码。
+- HTTP 响应带 `X-Request-ID`；错误保留 `detail` 并增加 `error.code/message/request_id`。日志不得记录敏感配置、查询正文或密钥。
+- 当前限流只是单进程客户端 IP 限制，不是分布式限流，也不覆盖 WebSocket 消息级控制。
+- 首页使用轻量摘要，主要页面按需加载；数据中心不得一次加载整库，长文本和原始字段按需查询。
+- 新闻、帖子与研究文本均是不可信输入。React 继续按文本渲染，不使用 `dangerouslySetInnerHTML` 展示原始 HTML。
+
+## 6. 构建、运行与测试
+
+本地命令以 **Windows + Git Bash + Conda + Node.js** 为基准，在仓库根目录执行，前端命令除外。
+
+首次安装：
 
 ```bash
-# 已存在 fintech 环境时跳过创建
 conda env create -f environment.yml
 conda run -n fintech python -m pip install -r requirements-dev.txt
-
-# 可选：创建本地配置；不创建时使用 example 配置
-cp server/config.example.json server/config.json
-
-cd web
-npm install --cache .npm-cache
+cd web && npm install --cache .npm-cache
 ```
 
-### 导入原始数据
+已有 `fintech` 环境时跳过创建。可选私有配置：`cp server/config.example.json server/config.json`。
 
-回到仓库根目录执行：
+导入数据：
 
 ```bash
 PYTHONPATH=".;server" PYTHONUTF8=1 conda run -n fintech python -m app.services.import_data
-
-# 仅升级旧版数据库时回填概览统计；不会重读原始文件
-PYTHONPATH=".;server" PYTHONUTF8=1 conda run -n fintech python -m app.services.import_data --rebuild-stats
 ```
 
-这里的 `PYTHONPATH` 使用 Windows 的 `;` 分隔符，使 Python 同时找到 `market_core` 和 `server/app`。首次全量导入会处理大型新闻文件并生成较大的 SQLite 数据库；后续执行会跳过未变化且已成功导入的文件。日期与字段统计随新导入生成，旧库只需执行一次统计回填。不要用普通单元测试代替首次真实数据导入。
-
-### 启动开发环境
+开发启动：
 
 ```bash
-# 仓库根目录；首次初始化会重新计算真实历史特征
 PYTHONPATH=. PYTHONUTF8=1 conda run -n fintech uvicorn app.main:app --app-dir server --host 127.0.0.1 --port 8000
+cd web && npm run dev
 ```
 
-另开终端：
+访问 `http://localhost:5173`，后端文档为 `http://localhost:8000/docs`。容器部署、短文件名副本和可选 Flink 编排见 `docs/stage-e-deployment.md`。
 
-```bash
-cd web
-npm run dev
-```
-
-访问 `http://localhost:5173`；后端文档为 `http://localhost:8000/docs`，GraphQL 为 `http://localhost:8000/graphql`。
-
-前端生产构建：
-
-```bash
-cd web
-npm run build
-```
-
-仓库提供后端、前端、Flink、ClickHouse 和 MinIO Dockerfile，以及默认、精简开发和可选 Flink Compose；生产入口为 Nginx。可选 Flink 编排会先创建输入、输出和迟到主题并禁止按墙钟清理，再提交作业。Docker Desktop 已安装，`v0.3.3` 的默认八个服务和可选 Flink 已真实启动并完成全量导入、核心 API、回放、页面和故障恢复验收；`v0.3.4` 的九服务编排、独立数据目录查询和停止/恢复已验收。Windows 原始研究摘要含超长文件名，首次及变化后必须先运行 `python -m app.services.prepare_container_data` 生成短文件名副本，详见 `docs/stage-e-deployment.md`。
-
-## 测试与质量验证
-
-后端完整测试和覆盖率：
+完整回归：
 
 ```bash
 PYTHONUTF8=1 conda run -n fintech python -m pytest --cov=market_core --cov=server/app --cov-report=term-missing server/tests
+cd web && npm test && npm run build
 ```
 
-`pyproject.toml` 已设置 `pythonpath = [".", "server"]`、默认测试目录 `server/tests`、分支覆盖率和 `fail_under = 30`。也可以在激活环境后运行 `python -m pytest`，但完整验收应保留覆盖率参数。
+修改解析、模型、接口或服务边界时必须增加对应行为测试，不能只验证导入或编译。单元测试中的 fake service、mock fetch/WebSocket 不能代替真实数据、 broker、Flink、服务重启、容器和 Chrome 验收。性能、正确性、恢复和页面验收分别记录，不将局部查询耗时当成端到端性能。
 
-前端测试与构建：
+## 7. 开发、安全与 Git 约定
 
-```bash
-cd web
-npm test
-npm run build
-```
+- Python 沿用 `from __future__ import annotations`、类型标注、数据类和 `pathlib.Path`，匹配现有模块结构；默认不写解释性噪声注释。
+- SQL 必须参数化；动态查询只能组合代码内固定片段，用户输入只能作为参数。
+- 修改模块边界、启动命令、配置或数据口径时，同步更新 `README.md`、`docs/architecture.md`、本文件和相关计划。
+- 项目未采用 OpenSpec；培训材料中的流程不代表仓库现状。
+- 密钥只能通过环境变量或被忽略的私有配置注入。严禁把真实凭据写入源码、文档、命令、日志或 Git 历史，也不要在回复中复述用户曾提供的密钥。
+- 原始赛题数据、`server/config.json`、`server/data/`、运行数据库和构建产物不得进入 Git。原始 PDF/PPT 保持未跟踪，除非用户明确要求纳入。
+- 当前没有完整用户登录、JWT/OAuth2 或数据权限体系，不得把服务描述为可安全暴露公网的生产系统。
+- 版本号为 `v主版本.次版本.修订号`。完整核心功能和端到端验收前保持 `v0.x`，不要仅为文档或架构讨论创建版本标签。
+- **每批修改必须经用户实际体验并明确确认后，才能提交或推送。测试通过不能代替用户验收；不得绕过确认，不得重复提交已存在的提交。**
 
-当前测试基线：
+## 8. 下一步与正式版门槛
 
-- `v0.3.4` 当前后端 82 项测试通过，覆盖数据、模型、回放、接口、存储、在线发布、请求观测、Flink 生命周期、持久化恢复、幂等控制、数据/特征服务契约、远程筛选、REST 代理、GraphQL/OpenAPI、WebSocket 关闭码与故障响应。
-- 后端总体分支覆盖率为 74.38%，高于 30% 的竞赛门槛；阶段 B/C/D/E 已真实验收。Flink Java 作业不计算在 Python 覆盖率内，Maven `clean package` 已通过。
-- 前端 11 项测试通过，覆盖既有首页、工作台、数据中心、标签与滚动行为，以及回放控制、WebSocket 当日结果、Kafka 与 Flink 通道创建参数、断线补拉、旧序号去重和真实计时面板。
-- 后端接口测试使用 fake service、固定行情或 fake Kafka 消息，前端测试 mock `fetch`、WebSocket 和图表；这些单元与集成测试不代替真实 broker、Flink 集群、后端重启和页面验收。
-- 最终容器数据为 1,046 个文件、1,556,492 条记录；全部 MinIO 对象已回读核对。真实 Chrome 已检查首页、工作台、数据中心、回放计时与恢复补拉页面，无 500 或浏览器错误；Nginx WebSocket 已收到真实逐日回放。数据与特征服务拆分后的真实查询、两日 WebSocket 回放、结果补拉和 4404 已验收；特征服务停止时市场/回放为 503、数据目录为 200，三日跨重启恢复原运行 ID 且序列完整。
-- 本地历史环境已完成四天三通道 `1e-12` 容差一致性、连续 Flink、乱序去重、超迟分流和 Savepoint 恢复。真实 Docker 后端重启已验证首日保留、三日序列完整、运行 ID 不变和新作业 ID，详见 `docs/v0.3.4-replay-persistence.md`。
-- 当前没有 CI 工作流、可持续运行的浏览器端 E2E 测试套件、覆盖全部竞赛指标的正式性能压测报告或前端覆盖率统计。
+`v0.3.4` 接下来的顺序：
 
-修改解析、模型或接口时，应增加与行为对应的测试；不要只验证模块可导入。完整链路、真实页面、部署和性能仍需单独验证。
+1. **API Gateway 评估**：预警服务独立部署已通过用户验收；下一批先比较现有 FastAPI 单入口与成熟网关在认证、限流、WebSocket 和运维方面的收益，再决定是否引入，不为组件数量增加网关。
+2. **安全与治理**：JWT/OAuth2、角色与数据权限覆盖 REST、GraphQL、WebSocket，再实现审计、Redis 分布式限流以及 Caffeine/Redis 缓存分工。
+3. **分析与展示**：可配置预警规则、规则版本、阈值与原始证据链、状态热力图、依赖监控；核实公布/发布时间后，让部分宏观或文本进入真实分析或证据链。
+4. **性能与交付**：优化模型初始化和 Flink 固定等待，完成压测、故障演练、CI、持续浏览器 E2E、方案 PDF、ER/数据流图、质量报告、ADR 与演示 MP4。
 
-## 原始数据组织与处理约定
-
-```text
-上科大数据合集/
-├── 目标资产价格变量/              # 39 个资产序列 CSV + 代码对照.csv
-├── 全球资金信息摘要/
-│   └── 上科大版本摘要/            # 1,000 篇中文 Markdown 摘要
-├── 新闻/无标题.csv                # 无表头大型新闻 CSV
-├── 科技.csv                       # X/Twitter 帖子与互动数据
-├── 日历数据.xlsx
-├── 商品期货日成交额.xlsx
-├── 指标集1_数据.xlsx
-└── 公众号.xlsx
-```
-
-当前实际数据口径：
-
-| 数据 | 规模与字段 | 注意事项 |
-| --- | --- | --- |
-| 资产目录与行情 | 目录 40 条；39 个可用行情 CSV，共 314,318 条有效行情；另有目录自身的 1 条汇总来源记录差异，SQLite 的 `asset` 组为 40 个文件、314,358 条记录 | 行情字段为 `date,close` 或 `date,yield`；“全球高收益债”标记缺失且无行情文件 |
-| `指标集1_数据.xlsx` | `X01`–`X31` 共 31 个 sheet，SQLite 共 104,122 条记录 | 脱敏字段只有 `日期` 和 `序列N`；频率不一且有空值，不得编造业务含义或强制转为日频 |
-| `商品期货日成交额.xlsx` | 1,924 条记录 | 保留 `成交额（万亿元）` 单位 |
-| `日历数据.xlsx` | 185,753 条记录 | 7 个原始字段；前值、预测值、实际值可能为空，国家字段为数值编码 |
-| `新闻/无标题.csv` | 900,704 条逻辑记录，11 列，无表头，约 1.83 GiB | 第 10 列作为事件日期；正文含 HTML、链接和嵌入换行，不能按物理行解析，也不得擅自命名正式业务列 |
-| `科技.csv` | 41,413 条逻辑记录，32 个有名字段 | 保留正文、作者、URL、互动计数和采集快照；正文可能跨物理行 |
-| `公众号.xlsx` | 7,218 条记录 | 只有日期、链接、文章标题、相关方，是文章索引而非全文 |
-| 研究摘要 | 1,000 个 Markdown 文件，每文件 1 条记录 | 从文件名提取日期、机构和标题，正文保留在 JSON payload |
-
-补充约束：
-
-- 债券 `yield` 是百分数，不是小数或价格；外汇名称已明确报价方向，不得颠倒。
-- 多个期货序列是连续或主力连续且未复权，具体以 `代码对照.csv` 备注为准。资产重复日期当前由后读值覆盖并计数，非法行跳过并计数。
-- CSV 使用 UTF-8/UTF-8-SIG 和标准 CSV 解析器；大型文件采用迭代读取或分批写入。Excel 第一行是表头，指标工作簿必须处理所有 sheet。
-- 保留原始 payload、来源文件、原始日期和必要的采集时间；派生数据与原始层分开。除非任务明确要求，不要重写、覆盖或批量移动原始文件。
-- 日期对齐、缺失填充、时区、宏观公布时间和特征窗口必须有明确口径，避免未来数据泄漏。宏观、事件和文本数据当前已入库，但尚未进入状态模型特征。
-- 原始文件数量、逻辑记录数和资产有效行情数是不同指标，不要混用。
-
-## 开发约定
-
-- Python 文件使用 `from __future__ import annotations`、类型标注、数据类和 `pathlib.Path`；沿用当前模块的命名与结构。
-- 核心领域、解析和算法放在 `market_core`，禁止反向依赖 `server` 或 `web`。`server` 负责配置、服务组装、运行存储和接口，不应承接领域算法。
-- 前端通过 API 获取真实状态，不在页面硬编码市场判断；使用函数组件、TypeScript 严格模式和集中样式。ECharts 继续按需注册组件，新增图表时同步处理实例销毁和尺寸变化。
-- SQL 查询保持参数化；动态查询只能组合代码内固定的 SQL 片段，用户输入只能作为参数。
-- 修改模块边界、启动命令、配置或数据口径时，同步更新 `README.md`、`docs/architecture.md` 和本文件，保持“当前实现”与“目标架构”分离。
-- 当前没有采用 OpenSpec，也没有 `openspec` 配置或命令；培训材料中的 OpenSpec 流程不是仓库现状。
-- 版本使用 `v主版本.次版本.修订号`。完整网页、核心 API、数据接入、状态识别、预警和 Docker Compose 端到端验收前保持 `v0.x`；不要仅为文档或架构讨论创建版本标签。
-- **任何 `git push` 必须等用户实际体验修改并明确确认后执行。本地测试、提交和标签不能代替用户体验验收。**
-
-## 安全注意事项
-
-- 密钥只能通过 `DEEPSEEK_API_KEY` 等环境变量、本地 `.env` 或被忽略的私有配置注入；`.env.example` 仅保存空模板。严禁把真实凭据写入源码、文档、命令、日志或 Git 历史。当前 LLM 尚未接入，模板中的模型名和基础地址不代表可用性已验证。
-- 原始赛题数据、`server/config.json` 和 `server/data/` 均被 Git 忽略。新增外部数据时记录来源，并检查许可和敏感信息。
-- 新闻、帖子和研究文本是不可信输入。当前 React 预览按文本渲染，不使用 `dangerouslySetInnerHTML`；修改预览时不得引入 HTML 注入/XSS。
-- 数据库访问必须使用参数化查询，避免 SQL 注入和硬编码密码。
-- 当前没有用户登录、JWT/OAuth2 或数据权限体系，只有 CORS 和简单内存限流。不要将当前服务直接描述为可安全暴露到公网的生产服务。
-
-## 竞赛目标与尚未验收事项
-
-以下均为目标，不是当前性能或部署事实：
-
-- 数据与计算：Kafka、Flink、事件时间窗口、Checkpoint/Savepoint、历史回放和失败恢复。
-- 存储：MySQL、ClickHouse、Redis、MinIO，以及 ODS/DWD/DWS/ADS 分层、分区、生命周期和血缘。
-- 服务：API Gateway、独立微服务、认证授权、分布式限流与缓存。
-- 模型：把宏观、事件和文本信号纳入特征，完善标签、回测、模型登记及可降级 LLM 分析助手。
-- 性能：端到端延迟 `<100ms`、吞吐量 `>10 万条/秒`、特征计算 `<50ms`、状态识别 `<1s`、Redis 热特征访问 `<10ms`、API `<50ms`、WebSocket 推送 `<100ms`、页面加载 `<2s`、并发用户 `>100`。这些指标目前均未形成验收报告。
-- 部署：提供 Dockerfile 和 Docker Compose，在干净环境完成一键启动、全部文件导入、核心接口和页面验收。
-
-竞赛必须交付 40 页以内的项目介绍 PDF、含 Dockerfile/Compose/README/覆盖率大于 30% 单元测试的 Git 仓库，以及 5 分钟以内、1080p 的功能与架构演示 MP4。发布材料列出的截止日期为 **2026-12-31**。性能报告、压测报告、ADR、监控截图和合规外部另类数据属于可选加分材料。
+`v1.0.0` 前必须按 `docs/v0.3.x-plan.md` 逐项实测：干净环境一键启动、核心功能、安全红线、各组件真实职责、认证权限、可配置规则、宏观/文本证据、性能与恢复，以及竞赛交付材料。性能目标只有在真实报告支持时才能宣称达标。竞赛交付包括 40 页以内项目 PDF、含 Dockerfile/Compose/README/覆盖率大于 30% 测试的 Git 仓库，以及 5 分钟以内 1080p MP4；发布材料截止日期为 **2026-12-31**。

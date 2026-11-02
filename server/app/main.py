@@ -18,8 +18,10 @@ from app.api.replay import router as replay_router
 from app.api.system import router as system_router
 from app.core.config import load_config
 from app.core.observability import RequestMetrics, build_request_middleware, error_response, install_error_handlers
+from app.services.alert_proxy import forward_alert_request
 from app.services.feature_proxy import forward_feature_request, forward_feature_websocket
 from app.services.market import MarketService
+from app.services.remote_alert import AlertServiceError, RemoteAlertClient
 from app.services.remote_catalog import DataServiceError
 from app.services.remote_feature import FeatureServiceError, RemoteFeatureService
 from app.services.replay import ReplayManager
@@ -50,10 +52,13 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        app.state.alert_service = None
         if service is not None:
             app.state.service = service
         elif remote_mode:
             app.state.service = RemoteFeatureService(config)
+            if config.alert_service["url"]:
+                app.state.alert_service = RemoteAlertClient(config.alert_service["url"], config.alert_service["timeout_seconds"])
         else:
             app.state.service = MarketService(config)
         if initialize and not remote_mode:
@@ -71,6 +76,8 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
                 await app.state.replays.close()
             if service is None:
                 app.state.service.close()
+                if app.state.alert_service is not None:
+                    app.state.alert_service.close()
 
     app = FastAPI(title=title, version="0.3.3", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])
@@ -87,9 +94,18 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
     async def feature_service_unavailable(_: Request, __: FeatureServiceError):
         return error_response(503, "feature_service_unavailable", "特征与状态服务暂时不可用", "特征与状态服务暂时不可用", {"Retry-After": "5"})
 
+    @app.exception_handler(AlertServiceError)
+    async def alert_service_unavailable(_: Request, __: AlertServiceError):
+        return error_response(503, "alert_service_unavailable", "预警服务暂时不可用", "预警服务暂时不可用", {"Retry-After": "5"})
+
     app.include_router(system_router)
     app.include_router(data_router)
     if remote_mode:
+        if config.alert_service["url"]:
+            @app.get("/api/alerts", include_in_schema=False)
+            async def alert_proxy(request: Request):
+                return await forward_alert_request(request, config.alert_service["url"], float(config.alert_service["timeout_seconds"]))
+
         @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
         async def feature_proxy(request: Request):
             return await forward_feature_request(request, config.feature_service["url"], float(config.feature_service["timeout_seconds"]))

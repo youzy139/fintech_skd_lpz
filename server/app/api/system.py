@@ -27,7 +27,13 @@ def ready(request: Request):
         checks["catalog"] = {"status": "ok", "records": summary["total_records"]}
     except Exception:
         checks["catalog"] = {"status": "unavailable"}
-    available = checks["market"]["status"] == "ok" and checks["catalog"]["status"] == "ok"
+    alert_service = getattr(request.app.state, "alert_service", None)
+    if alert_service is not None:
+        try:
+            checks["alerts"] = alert_service.readiness()
+        except Exception:
+            checks["alerts"] = {"status": "unavailable"}
+    available = all(check["status"] == "ok" for check in checks.values())
     return JSONResponse(status_code=200 if available else 503, content={"status": "ok" if available else "unavailable", "checks": checks})
 
 

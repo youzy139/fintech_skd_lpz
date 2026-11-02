@@ -80,5 +80,9 @@
     "url": "",
     "timeout_seconds": 10
   },
+  "alert_service": {
+    "url": "",
+    "timeout_seconds": 5
+  },
   "cors_origins": ["http://localhost:5173"]
 }

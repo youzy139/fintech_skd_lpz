@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict
 from typing import Any
 
@@ -53,6 +54,16 @@ class MarketService:
         if not self.states:
             raise RuntimeError("状态模型尚未初始化")
         return self.states[-1]
+
+    def alert_states(self) -> list[dict[str, Any]]:
+        inputs = []
+        for state in self.states:
+            features = {}
+            for name in ("volatility", "correlation"):
+                value = float(state["features"][name])
+                features[name] = value if math.isfinite(value) else None
+            inputs.append({"date": state["date"], "label": state["label"], "features": features})
+        return inputs
 
     def home_summary(self) -> dict[str, Any]:
         return {

@@ -9,6 +9,10 @@ services:
     profiles: [full]
     ports:
       - "8002:8000"
+  alert-service:
+    profiles: [full]
+    ports:
+      - "8003:8000"
   backend:
     profiles: [full]
   frontend:

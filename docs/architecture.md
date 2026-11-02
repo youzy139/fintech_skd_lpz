@@ -209,8 +209,15 @@ LLM 不得直接修改原始行情、特征、状态标签、已触发预警或�
 - `app.feature_service:app` 复用同一应用组装，独立持有 `MarketService`、`ReplayManager`、模型快照和回放会话；通过 `DATA_SERVICE_URL` 调用数据服务，不直接拥有目录主读。
 - 主后端设置 `FEATURE_SERVICE_URL` 后不再创建第二份模型或回放管理器。市场和回放 REST 由有界超时代理转发，保留查询参数、正文、幂等键、状态码和错误结构；`/ws/replay*` 双向中继并传递上游关闭码。
 - GraphQL 在主后端组合特征服务的 `assets`、`latestState` 与数据服务的 `sourceSummary`；OpenAPI 复用特征服务完整 schema。Nginx 和前端仍只访问主后端，不要求浏览器知道内部服务地址。
-- 这是现有 FastAPI 入口的兼容代理，不是另起一套通用 API Gateway，也不改变模型、事件时间或三通道算法。预警目前仍随特征状态应用提供，下一步才拆出独立预警服务。
+- 这是现有 FastAPI 入口的兼容代理，不是另起一套通用 API Gateway，也不改变模型、事件时间或三通道算法。历史预警查询随后由独立预警服务承担。
 - 真实 Compose 已核对五组市场/回放查询一致、GraphQL 与完整 OpenAPI；两日回放通过主后端 WebSocket 产出序列 1、2，REST 补拉一致，不存在会话保持 4404，Nginx 旧 WebSocket 对照可用。停止特征服务时市场与回放为 503、数据目录为 200；恢复后无需重启主后端。三日回放在首日后重启特征服务，恢复原运行 ID 并完成序列 1、2、3，模型重建约 13.40 秒。
+
+### v0.3.4 预警服务独立部署
+
+- `app.alert_service:app` 启动时通过 `FEATURE_SERVICE_URL` 读取 `/api/internal/alert-states`，使用 `market_core.models.alerts.generate_alerts` 重建历史预警并独立提供 `/api/alerts`、健康和进程指标。内部输入只含日期、状态标签、波动率和相关性；非有限数值以 `null` 传输并按缺失值处理，避免标准 JSON 序列化 `NaN` 失败。
+- 主后端配置 `ALERT_SERVICE_URL` 后只将 `/api/alerts` 转发到预警服务，其余市场与回放请求仍走特征服务。GraphQL、OpenAPI、WebSocket 和前端预警结构不变；未配置服务地址时保留单体路径。
+- 逐日回放仍在特征服务内调用同一个纯规则函数，不增加每个交易日的同步网络调用。历史与增量一致性、至少 60 个历史状态日、三类规则、缺失值和空结果均有契约测试；预警服务不是另一套算法实现。
+- 真实 Compose 中主后端、预警服务和特征服务最新 1,000 条预警逐字一致，总计 1,127 条历史预警。停止预警服务后预警查询和整体 readiness 为 503，市场与数据目录为 200，主后端 WebSocket 本地回放仍完成且 REST 补拉一致；恢复预警服务无需重启主后端。该结果不代表可配置规则、证据链、服务鉴权或高可用已经完成。
 
 ## 8. 当前仓库边界
 
@@ -226,7 +233,8 @@ server/
   app/main.py          # 单体或兼容代理组装，GraphQL 组合与 WebSocket 中继
   app/data_service.py  # 独立数据目录服务组装，不加载市场模型
   app/feature_service.py # 独立特征状态与回放服务
-  tests/               # 核心、导入、接口与数据服务契约测试
+  app/alert_service.py # 独立历史预警查询服务
+  tests/               # 核心、导入、接口与服务契约测试
   config.example.json  # 无密钥配置模板
   config.json          # 本地私有配置，Git 忽略
   data/                # SQLite、Kafka、Flink 与验收运行时数据，Git 忽略
@@ -244,7 +252,7 @@ docs/                  # 架构和后续数据、模型文档
 - 日窗口使用 Java 17、Flink 2.2.1、Kafka Connector 5.0.0 与 Maven 构建，本地为单 JobManager/TaskManager。
 - 前端使用 React、TypeScript、Vite、ECharts 和 Vitest。
 - 模型使用 NumPy、pandas、scikit-learn，按滚动历史窗口执行标准化、PCA 和 KMeans。
-- Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。`v0.3.3` 的默认八个容器和可选 Flink 已真实运行；`v0.3.4` 编排增加独立数据与特征状态服务后为十个。ClickHouse 使用 25.8.4.13 官方校验包，MinIO 使用固定源码版本。
+- Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。`v0.3.3` 的默认八个容器和可选 Flink 已真实运行；`v0.3.4` 编排增加独立数据、特征状态与预警服务后为十一个。ClickHouse 使用 25.8.4.13 官方校验包，MinIO 使用固定源码版本。
 - LLM 暂定使用 `deepseek-v4.1flash`，API 基础地址和模型可用性尚未验证，当前未接入核心链路。
 - 私钥可通过本地 `.env` 或后续 `server/config.json` 的忽略配置注入；不得提交真实密钥。
 
