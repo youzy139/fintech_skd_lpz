@@ -309,7 +309,7 @@ class ReplaySession:
             if self.run_id and hasattr(pipeline, "run_id"):
                 pipeline.run_id = self.run_id
             self.pipeline = pipeline
-            self.run_id = getattr(pipeline, "run_id", uuid4().hex)
+            self.run_id = getattr(pipeline, "run_id", None) or self.run_id or uuid4().hex
             async with self.lock:
                 if self.engine is None:
                     engine_started = monotonic()

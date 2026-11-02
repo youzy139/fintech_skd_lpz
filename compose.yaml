@@ -161,17 +161,39 @@ services:
       start_period: 10s
     networks: [marketlens]
 
+  feature-service:
+    <<: *application
+    command: ["python", "-m", "uvicorn", "app.feature_service:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *app-environment
+      DATA_SERVICE_URL: http://data-service:8000
+      DATA_SERVICE_TIMEOUT_SECONDS: "5"
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+      data-service: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    networks: [marketlens]
+
   backend:
     <<: *application
     environment:
       <<: *app-environment
       DATA_SERVICE_URL: http://data-service:8000
       DATA_SERVICE_TIMEOUT_SECONDS: "5"
+      FEATURE_SERVICE_URL: http://feature-service:8000
+      FEATURE_SERVICE_TIMEOUT_SECONDS: "10"
     ports:
       - "8000:8000"
     depends_on:
       bootstrap: {condition: service_completed_successfully}
       data-service: {condition: service_healthy}
+      feature-service: {condition: service_healthy}
       mysql: {condition: service_healthy}
       clickhouse: {condition: service_healthy}
       minio: {condition: service_healthy}

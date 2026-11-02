@@ -91,6 +91,7 @@ def test_unfinished_session_recovers_from_saved_results(monkeypatch, tmp_path):
         duplicate = http.post(f"/api/replay/sessions/{session_id}/resume", headers={"Idempotency-Key": "resume-1"}).json()
         assert duplicate["run_id"] == resumed["run_id"]
         completed = wait_for(http, session_id, lambda item: item["status"] == "completed")
+        assert completed["run_id"] == run_id
         assert completed["recovery"]["state"] == "completed"
         assert completed["recovery"]["count"] == 1
         assert completed["recovery"]["rebuild_ms"] >= 0

@@ -5,6 +5,10 @@ services:
     profiles: [full]
     ports:
       - "8001:8000"
+  feature-service:
+    profiles: [full]
+    ports:
+      - "8002:8000"
   backend:
     profiles: [full]
   frontend:

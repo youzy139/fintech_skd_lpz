@@ -63,6 +63,17 @@ class MarketService:
             "state_count": len(self.states),
         }
 
+    def health_details(self) -> dict[str, Any]:
+        return {"storage_mode": self.storage_mode, "assets": len(self.series), "states": len(self.states)}
+
+    def market_readiness(self) -> dict[str, Any]:
+        ready = bool(self.series and self.states)
+        return {"status": "ok" if ready else "unavailable", "assets": len(self.series), "states": len(self.states)}
+
+    def replay_metrics(self) -> dict[str, int]:
+        sessions = list(getattr(self, "replay_manager").sessions.values())
+        return {"replay_sessions": len(sessions), "active_replays": sum(session.clock.status in {"running", "paused"} for session in sessions)}
+
     def data_version(self) -> str:
         return self.catalog.data_version()
 

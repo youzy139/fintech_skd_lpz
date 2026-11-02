@@ -204,6 +204,14 @@ LLM 不得直接修改原始行情、特征、状态标签、已触发预警或�
 - 前端仍只访问原主后端和 Nginx 同源接口，REST、GraphQL、WebSocket 与回放计算边界不变。Compose 增加 `data-service`，主后端等待其 readiness；特征状态和预警尚未拆成独立进程，不能称为完整微服务体系。
 - 真实 Compose 验收中，数据总量、类型概览、标签、文件分页和多标签记录查询五组主服务/数据服务响应逐字一致，GraphQL 保持可用。停止数据服务后数据接口与 readiness 返回 503，市场摘要继续返回 200；重新启动数据服务后无需重启主后端即恢复。该结果证明进程边界和故障隔离，不代表服务间鉴权或高可用已经完成。
 
+### v0.3.4 特征与状态服务独立部署
+
+- `app.feature_service:app` 复用同一应用组装，独立持有 `MarketService`、`ReplayManager`、模型快照和回放会话；通过 `DATA_SERVICE_URL` 调用数据服务，不直接拥有目录主读。
+- 主后端设置 `FEATURE_SERVICE_URL` 后不再创建第二份模型或回放管理器。市场和回放 REST 由有界超时代理转发，保留查询参数、正文、幂等键、状态码和错误结构；`/ws/replay*` 双向中继并传递上游关闭码。
+- GraphQL 在主后端组合特征服务的 `assets`、`latestState` 与数据服务的 `sourceSummary`；OpenAPI 复用特征服务完整 schema。Nginx 和前端仍只访问主后端，不要求浏览器知道内部服务地址。
+- 这是现有 FastAPI 入口的兼容代理，不是另起一套通用 API Gateway，也不改变模型、事件时间或三通道算法。预警目前仍随特征状态应用提供，下一步才拆出独立预警服务。
+- 真实 Compose 已核对五组市场/回放查询一致、GraphQL 与完整 OpenAPI；两日回放通过主后端 WebSocket 产出序列 1、2，REST 补拉一致，不存在会话保持 4404，Nginx 旧 WebSocket 对照可用。停止特征服务时市场与回放为 503、数据目录为 200；恢复后无需重启主后端。三日回放在首日后重启特征服务，恢复原运行 ID 并完成序列 1、2、3，模型重建约 13.40 秒。
+
 ## 8. 当前仓库边界
 
 ```text
@@ -215,8 +223,9 @@ server/
   app/api/             # system、market、data、replay 路由与请求契约
   app/core/            # 服务配置、请求追踪与进程内指标
   app/services/        # 目录本地/远程适配、存储、回放计时与性能基准
-  app/main.py          # 主后端 GraphQL、WebSocket、路由与中间件组装
+  app/main.py          # 单体或兼容代理组装，GraphQL 组合与 WebSocket 中继
   app/data_service.py  # 独立数据目录服务组装，不加载市场模型
+  app/feature_service.py # 独立特征状态与回放服务
   tests/               # 核心、导入、接口与数据服务契约测试
   config.example.json  # 无密钥配置模板
   config.json          # 本地私有配置，Git 忽略
@@ -235,7 +244,7 @@ docs/                  # 架构和后续数据、模型文档
 - 日窗口使用 Java 17、Flink 2.2.1、Kafka Connector 5.0.0 与 Maven 构建，本地为单 JobManager/TaskManager。
 - 前端使用 React、TypeScript、Vite、ECharts 和 Vitest。
 - 模型使用 NumPy、pandas、scikit-learn，按滚动历史窗口执行标准化、PCA 和 KMeans。
-- Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。`v0.3.3` 的默认八个容器和可选 Flink 已真实运行；`v0.3.4` 编排增加独立数据服务后为九个。ClickHouse 使用 25.8.4.13 官方校验包，MinIO 使用固定源码版本。
+- Conda 用于本地开发，Docker Compose 用于完整系统交付与验收，两者不能相互替代。`v0.3.3` 的默认八个容器和可选 Flink 已真实运行；`v0.3.4` 编排增加独立数据与特征状态服务后为十个。ClickHouse 使用 25.8.4.13 官方校验包，MinIO 使用固定源码版本。
 - LLM 暂定使用 `deepseek-v4.1flash`，API 基础地址和模型可用性尚未验证，当前未接入核心链路。
 - 私钥可通过本地 `.env` 或后续 `server/config.json` 的忽略配置注入；不得提交真实密钥。
 

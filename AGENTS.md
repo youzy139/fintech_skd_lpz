@@ -15,9 +15,9 @@
 - React 工作台包含网站首页、市场总览、状态分析、历史回放、特征分析、预警中心和数据中心；首页使用轻量摘要，各主要页面按需加载。数据中心提供预聚合概览、时间覆盖、字段目录、友好内容、服务端分页和安全的原始字段核对；最多 5 个标签支持并集/交集、去重总数和组合筛选。
 - 已有后端 pytest、前端 Vitest、分支覆盖率配置和生产构建流程。
 
-**当前实现不是完整分布式系统。** 本地默认 SQLite，可通过 `STORAGE_MODE=distributed` 显式切换 ClickHouse 主读；MySQL/MinIO 已进入发布链路，Redis 可回源。ClickHouse 按来源代次在线发布已实现并完成真实小文件重发。`v0.3.4` 已加入可独立部署的数据目录服务，主后端可通过内部 HTTP 复用同一数据契约；特征状态、预警仍与主后端同进程，完整认证授权和 LLM 助手未落地。Docker Compose 默认服务由此增加为九个，既有全量导入、对象回读、Kafka/Flink 回放、Nginx WebSocket、Chrome、故障恢复及干净源码目录与空卷复验结论仍属于对应历史版本。真实历史回放不等于实时行情，不得把竞赛目标或性能指标描述成已经达标。
+**当前实现不是完整分布式系统。** 本地默认 SQLite，可通过 `STORAGE_MODE=distributed` 显式切换 ClickHouse 主读；MySQL/MinIO 已进入发布链路，Redis 可回源。ClickHouse 按来源代次在线发布已实现并完成真实小文件重发。`v0.3.4` 已加入独立数据目录服务和特征状态服务，主后端通过兼容代理复用原 REST、GraphQL、WebSocket 契约；预警仍随特征状态应用，完整认证授权和 LLM 助手未落地。Docker Compose 默认服务由此增加为十个，既有全量导入、对象回读、Kafka/Flink 回放、Nginx WebSocket、Chrome、故障恢复及干净源码目录与空卷复验结论仍属于对应历史版本。真实历史回放不等于实时行情，不得把竞赛目标或性能指标描述成已经达标。
 
-`v0.3.0` 完成本地回放，`v0.3.1` 完成 Kafka，`v0.3.2` 完成 Flink，当前最新版本标签 `v0.3.3` 完成分布式存储、在线增量发布与容器部署。`v0.3.4` 已完成首批契约、观测、Flink 连续回放修复、会话结果持久化、后端重启恢复、断线补拉、幂等控制和数据服务独立部署实现；后端 75 项、前端 11 项测试通过，覆盖率 74.48%。完整版本尚未打标签，下一阶段是特征状态与预警服务拆分和治理；详见 `docs/v0.3.4-plan.md`、`docs/v0.3.4-observability.md` 和 `docs/v0.3.4-replay-persistence.md`。
+`v0.3.0` 完成本地回放，`v0.3.1` 完成 Kafka，`v0.3.2` 完成 Flink，当前最新版本标签 `v0.3.3` 完成分布式存储、在线增量发布与容器部署。`v0.3.4` 已完成首批契约、观测、Flink 连续回放修复、会话持久化、数据目录与特征状态独立部署，以及跨进程回放恢复和 WebSocket 兼容；后端 82 项、前端 11 项测试通过，覆盖率 74.38%。完整版本尚未打标签，下一阶段是预警服务拆分和治理；详见 `docs/v0.3.4-plan.md`、`docs/v0.3.4-observability.md` 和 `docs/v0.3.4-replay-persistence.md`。
 
 核心业务流程为“状态判断 → 预警决策 → 分析建议”。数值特征与状态由数学模型计算，预警由确定性规则产生；规划中的 LLM 只负责文本理解、证据整合与解释，不应成为核心链路的单点依赖。
 
@@ -39,7 +39,7 @@
 
 后端使用 Python 3.12 和标准库 `sqlite3`，不依赖 ORM。前端使用函数组件和 React Hooks，无路由库、状态管理库或独立 CSS 框架。当前没有配置 Ruff、Black、mypy、ESLint、Prettier，也没有前端覆盖率脚本；不要声称这些检查已存在。
 
-`server/app/core/config.py` 优先读取 `MARKETLENS_CONFIG` 指定文件，其次是被 Git 忽略的 `server/config.json`，最后回退 `server/config.example.json`；`DATA_ROOT`、`DATABASE_PATH` 和各服务地址可用环境变量覆盖。相对路径基于所选配置文件目录。默认模型参数为：分析起点 2015-01-01、最少历史 504 个有效特征日、训练窗口 756 日、每 63 日重训、20 日波动窗口、60 日动量窗口、3 个聚类、随机种子 42。`STORAGE_MODE=local|distributed` 显式选择目录主读，distributed 必须同时 `CLICKHOUSE_ENABLED=true`，否则拒绝启动；本地默认 SQLite，distributed 使用 ClickHouse，不会静默切换。Kafka 默认关闭，用 `KAFKA_ENABLED=true` 开启，地址与主题由 `KAFKA_BOOTSTRAP_SERVERS`、`KAFKA_TOPIC` 覆盖；`aiokafka` 生产者没有公开 `retries` 参数。Flink 默认关闭，用 `FLINK_ENABLED=true` 开启，`FLINK_REST_URL` 默认 `http://127.0.0.1:8081`，Flink 模式要求 Kafka 同时启用；`FLINK_CHECKPOINT_DIR`、`FLINK_CHECKPOINT_INTERVAL_MS`、`FLINK_JOB_START_TIMEOUT_MS` 和 `FLINK_JOB_STOP_TIMEOUT_MS` 控制作业存储与生命周期。MySQL/MinIO/ClickHouse/Redis 默认关闭，密码分别通过 `MYSQL_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`CLICKHOUSE_PASSWORD`、`REDIS_PASSWORD` 或私有配置注入，示例配置不得包含真实凭据。Redis 默认 `127.0.0.1:6379`、TTL 60 秒，缓存键包含当前发布代次摘要和全部查询参数，故障自动回到显式主存储。`DATA_SERVICE_URL` 默认为空并保持单体目录访问；设置后主后端通过 `RemoteCatalogClient` 调用独立数据服务，`DATA_SERVICE_TIMEOUT_SECONDS` 控制有界超时，默认 5 秒，不自动重试。数据服务自身忽略该 URL，直接组装显式主存储与缓存，避免自调用。
+`server/app/core/config.py` 优先读取 `MARKETLENS_CONFIG` 指定文件，其次是被 Git 忽略的 `server/config.json`，最后回退 `server/config.example.json`；`DATA_ROOT`、`DATABASE_PATH` 和各服务地址可用环境变量覆盖。相对路径基于所选配置文件目录。默认模型参数为：分析起点 2015-01-01、最少历史 504 个有效特征日、训练窗口 756 日、每 63 日重训、20 日波动窗口、60 日动量窗口、3 个聚类、随机种子 42。`STORAGE_MODE=local|distributed` 显式选择目录主读，distributed 必须同时 `CLICKHOUSE_ENABLED=true`，否则拒绝启动；本地默认 SQLite，distributed 使用 ClickHouse，不会静默切换。Kafka 默认关闭，用 `KAFKA_ENABLED=true` 开启，地址与主题由 `KAFKA_BOOTSTRAP_SERVERS`、`KAFKA_TOPIC` 覆盖；`aiokafka` 生产者没有公开 `retries` 参数。Flink 默认关闭，用 `FLINK_ENABLED=true` 开启，`FLINK_REST_URL` 默认 `http://127.0.0.1:8081`，Flink 模式要求 Kafka 同时启用；`FLINK_CHECKPOINT_DIR`、`FLINK_CHECKPOINT_INTERVAL_MS`、`FLINK_JOB_START_TIMEOUT_MS` 和 `FLINK_JOB_STOP_TIMEOUT_MS` 控制作业存储与生命周期。MySQL/MinIO/ClickHouse/Redis 默认关闭，密码分别通过 `MYSQL_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`CLICKHOUSE_PASSWORD`、`REDIS_PASSWORD` 或私有配置注入，示例配置不得包含真实凭据。Redis 默认 `127.0.0.1:6379`、TTL 60 秒，缓存键包含当前发布代次摘要和全部查询参数，故障自动回到显式主存储。`DATA_SERVICE_URL` 默认为空并保持单体目录访问；设置后通过 `RemoteCatalogClient` 调用独立数据服务，`DATA_SERVICE_TIMEOUT_SECONDS` 默认 5 秒。`FEATURE_SERVICE_URL` 默认为空并保持本地模型与回放；设置后主后端通过 `RemoteFeatureService`、REST 代理和 WebSocket 中继接入独立特征状态服务，`FEATURE_SERVICE_TIMEOUT_SECONDS` 默认 10 秒。远程调用均不自动重试。数据服务和特征服务自身不设置 `FEATURE_SERVICE_URL`，避免自调用。
 
 ## 目录与模块职责
 
@@ -73,6 +73,8 @@
 │   │   │   ├── catalog_factory.py # 本地/分布式目录与远程客户端选择
 │   │   │   ├── data_catalog.py  # 独立数据目录应用服务
 │   │   │   ├── remote_catalog.py # 有界超时、请求 ID 透传的目录 HTTP 客户端
+│   │   │   ├── remote_feature.py # 特征状态查询与 GraphQL/健康适配
+│   │   │   ├── feature_proxy.py # 市场/回放 REST 代理与 WebSocket 双向中继
 │   │   │   ├── migration_baseline.py # SQLite 全量内容摘要、查询基线与差异核对
 │   │   │   ├── mysql_metadata.py # MySQL 元数据 schema 迁移、复制与对账
 │   │   │   ├── object_archive.py # MinIO 内容寻址归档与回读哈希
@@ -89,8 +91,9 @@
 │   │   │   ├── replay_store.py  # SQLite 会话、逐日结果、当前指针与幂等操作持久化
 │   │   │   ├── replay_benchmark.py # 固定区间的三通道性能基准与结果容差核对
 │   │   │   └── storage.py       # quality、states、alerts 快照写入
-│   │   ├── main.py              # 主后端 GraphQL、WebSocket、路由与中间件组装
-│   │   └── data_service.py      # 独立数据目录服务，不加载市场模型或回放管理器
+│   │   ├── main.py              # 单体或兼容代理组装，GraphQL 组合与 WebSocket 中继
+│   │   ├── data_service.py      # 独立数据目录服务，不加载市场模型或回放管理器
+│   │   └── feature_service.py   # 独立特征状态与回放服务
 │   ├── migrations/              # MySQL 与 ClickHouse 版本化 DDL
 │   ├── tests/                   # 核心、导入、SQLite、存储契约、对象归档、ClickHouse、回放、Kafka 和接口测试
 │   ├── config.example.json      # 可提交的配置模板
@@ -117,7 +120,7 @@
 └── 上科大数据合集/              # 原始竞赛输入，Git 忽略
 ```
 
-`server/app/api/` 在 `v0.3.4` 首批实施中已拆出 `system.py`、`market.py`、`data.py` 和 `replay.py`，请求模型位于 `contracts.py`，共享取值位于 `dependencies.py`；GraphQL 和 WebSocket 仍由 `main.py` 组装。随后 `data_service.py` 将数据目录路由、健康检查和进程指标组装为独立进程，`DataCatalogService` 负责目录存储与缓存，主后端通过 `RemoteCatalogClient` 保持原数据接口。特征状态、预警、GraphQL 和 WebSocket 尚未拆成独立服务。
+`server/app/api/` 在 `v0.3.4` 首批实施中已拆出 `system.py`、`market.py`、`data.py` 和 `replay.py`。`data_service.py` 独立组装数据目录，`feature_service.py` 独立持有市场模型和回放管理器。主后端设置 `FEATURE_SERVICE_URL` 后通过 `RemoteFeatureService`、REST 代理和 WebSocket 中继保持原协议，不再创建第二份模型；GraphQL 组合两个服务，OpenAPI 复用完整特征服务 schema。预警仍随特征状态应用提供，尚未独立部署。
 
 ## 当前运行架构与数据流
 
@@ -230,11 +233,11 @@ npm run build
 
 当前测试基线：
 
-- `v0.3.4` 当前后端 75 项测试通过，覆盖数据、模型、回放、接口、存储、在线发布、请求观测、Flink 生命周期、持久化恢复、幂等控制、数据服务契约、远程筛选和故障响应、阶段计时与基准汇总。
-- 后端总体分支覆盖率为 74.48%，高于 30% 的竞赛门槛；阶段 B/C/D/E 已真实验收。Flink Java 作业不计算在 Python 覆盖率内，Maven `clean package` 已通过。
+- `v0.3.4` 当前后端 82 项测试通过，覆盖数据、模型、回放、接口、存储、在线发布、请求观测、Flink 生命周期、持久化恢复、幂等控制、数据/特征服务契约、远程筛选、REST 代理、GraphQL/OpenAPI、WebSocket 关闭码与故障响应。
+- 后端总体分支覆盖率为 74.38%，高于 30% 的竞赛门槛；阶段 B/C/D/E 已真实验收。Flink Java 作业不计算在 Python 覆盖率内，Maven `clean package` 已通过。
 - 前端 11 项测试通过，覆盖既有首页、工作台、数据中心、标签与滚动行为，以及回放控制、WebSocket 当日结果、Kafka 与 Flink 通道创建参数、断线补拉、旧序号去重和真实计时面板。
 - 后端接口测试使用 fake service、固定行情或 fake Kafka 消息，前端测试 mock `fetch`、WebSocket 和图表；这些单元与集成测试不代替真实 broker、Flink 集群、后端重启和页面验收。
-- 最终容器数据为 1,046 个文件、1,556,492 条记录；全部 MinIO 对象已回读核对。真实 Chrome 已检查首页、工作台、数据中心、回放计时与恢复补拉页面，无 500 或浏览器错误；Nginx WebSocket 已收到真实逐日回放。数据服务拆分后的五组真实容器 API 已逐字一致；停止数据服务时数据接口/readiness 为 503、市场摘要为 200，恢复后无需重启主后端。
+- 最终容器数据为 1,046 个文件、1,556,492 条记录；全部 MinIO 对象已回读核对。真实 Chrome 已检查首页、工作台、数据中心、回放计时与恢复补拉页面，无 500 或浏览器错误；Nginx WebSocket 已收到真实逐日回放。数据与特征服务拆分后的真实查询、两日 WebSocket 回放、结果补拉和 4404 已验收；特征服务停止时市场/回放为 503、数据目录为 200，三日跨重启恢复原运行 ID 且序列完整。
 - 本地历史环境已完成四天三通道 `1e-12` 容差一致性、连续 Flink、乱序去重、超迟分流和 Savepoint 恢复。真实 Docker 后端重启已验证首日保留、三日序列完整、运行 ID 不变和新作业 ID，详见 `docs/v0.3.4-replay-persistence.md`。
 - 当前没有 CI 工作流、可持续运行的浏览器端 E2E 测试套件、覆盖全部竞赛指标的正式性能压测报告或前端覆盖率统计。
 

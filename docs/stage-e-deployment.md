@@ -9,7 +9,7 @@
 - `flink/Dockerfile`：Maven 构建 Java 17 作业，Flink 2.2.1 运行镜像和持久检查点目录。
 - `clickhouse/Dockerfile`：从 ClickHouse 官网固定版本安装包构建，强制 SHA-512 校验；当前容器为 25.8.4.13，已完成全量兼容性验收。
 - `minio/Dockerfile`：官方历史镜像不可拉取，因此按既有本地验收方式，从 `RELEASE.2025-09-07T16-13-09Z` 固定源码构建，非 root 运行。
-- `compose.yaml`：`v0.3.3` 验收时为 MySQL、ClickHouse、Redis、MinIO、Kafka、初始化、后端和前端八个默认服务；`v0.3.4` 增加独立数据服务后为九个。
+- `compose.yaml`：`v0.3.3` 验收时为 MySQL、ClickHouse、Redis、MinIO、Kafka、初始化、后端和前端八个默认服务；`v0.3.4` 增加独立数据服务和特征状态服务后为十个。
 - `compose.dev.yaml`：仅基础设施，Python/React 可继续本地热更新；Flink 不是默认开发依赖。
 - `compose.flink.yaml`：可选 JobManager、TaskManager、Kafka 主题初始化和一次性 JAR 上传；自动创建输入、输出和迟到主题并设置 `retention.ms=-1`。后端按回放运行通过 REST 启动独立作业，不再由 Compose 启动一个共享全局水位线作业。
 - `deploy/config/container.json`、`.env.example`：无密钥配置与空模板；真实 `.env` 不进入 Git 或镜像。
