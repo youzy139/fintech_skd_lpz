@@ -1,0 +1,30 @@
+{
+  "complete": true,
+  "user_acceptance_pending": false,
+  "backend_tests_passed": 119,
+  "frontend_tests_passed": 18,
+  "python_branch_enabled_coverage_percent": 76.09,
+  "frontend_build_passed": true,
+  "real_browser": {
+    "concurrent_limit_message": true,
+    "release_and_reenter": true,
+    "redis_failure_message": true,
+    "runtime_errors": [],
+    "isolated_identity_and_replay_database": true,
+    "real_replay_sequences": [
+      1,
+      2
+    ]
+  },
+  "checks": [
+    "real Redis atomic per-user and service-total limits across two pool instances",
+    "two actual Uvicorn processes share three slots; fourth rejected; disconnect releases a slot",
+    "crashed owner slots recovered after default 30-second TTL; idle survivor renewed across TTL",
+    "Redis outage closes idle subscription 1013; new connection works after Redis recovery"
+  ],
+  "lease_ttl_seconds": 30,
+  "per_user": 3,
+  "uses_real_market_data": false,
+  "scope": "transport concurrency only; not a financial replay correctness benchmark",
+  "user_accepted": true
+}

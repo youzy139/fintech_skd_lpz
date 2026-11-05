@@ -12,12 +12,14 @@ from dataclasses import dataclass
 from threading import Lock
 
 import redis
+from anyio import CancelScope
 from redis.exceptions import RedisError
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 from starlette.responses import JSONResponse
 
 from app.core.observability import current_request_id
+from app.core.leases import ConnectionLeases
 
 
 QUOTAS = {"read": 240, "query": 60, "control": 20, "admin": 30, "login": 8, "ws": 20, "message": 120}
@@ -90,8 +92,9 @@ def category_for(path, method):
 
 
 class GovernanceMiddleware:
-    def __init__(self, app, limiter, service_name):
+    def __init__(self, app, limiter, service_name, leases=None):
         self.app, self.limiter, self.service_name = app, limiter, service_name
+        self.leases = leases or ConnectionLeases(limiter.client, namespace="marketlens:connections:v1:{" + service_name + "}")
 
     async def __call__(self, scope, receive, send):
         if scope["type"] not in {"http", "websocket"}:
@@ -109,10 +112,16 @@ class GovernanceMiddleware:
         status = 500
         accepted = False
         closed = False
+        lease = None
+        lease_deadline = 0.0
 
         async def output(message):
             nonlocal status, accepted, closed
             if closed:
+                return
+            if message["type"] == "websocket.send" and lease and time.monotonic() >= lease_deadline:
+                closed = True
+                await send({"type": "websocket.close", "code": 1013, "reason": "connection_lease_expired"})
                 return
             if message["type"] == "http.response.start":
                 status = message["status"]
@@ -126,13 +135,13 @@ class GovernanceMiddleware:
                 closed = True
             await send(message)
 
-        async def reject(code, message):
+        async def reject(code, message, reason=""):
             nonlocal status
             status = code
             if scope["type"] == "websocket":
                 if not accepted:
                     await output({"type": "websocket.accept"})
-                await output({"type": "websocket.close", "code": 4429 if code == 429 else 1013})
+                await output({"type": "websocket.close", "code": 4429 if code == 429 else 1013, "reason": reason})
             else:
                 headers = decision.headers() if decision else {}
                 headers.update({"Retry-After": str(decision.retry if decision else 5), "Cache-Control": "no-store"})
@@ -160,7 +169,32 @@ class GovernanceMiddleware:
             if not decision.allowed:
                 return await reject(429, "请求过于频繁，请稍后重试")
             if scope["type"] == "websocket":
+                async def lease_call(method, *args):
+                    return await asyncio.wait_for(asyncio.to_thread(method, *args), timeout=min(1.0, self.leases.ttl / 3))
+
+                try:
+                    lease_deadline = time.monotonic() + self.leases.ttl
+                    lease = await lease_call(self.leases.acquire, identity)
+                except (RedisError, TimeoutError):
+                    return await reject(503, "连接治理暂时不可用", "connection_lease_unavailable")
+                if lease is None:
+                    return await reject(429, "订阅连接已达并发上限", "connection_limit")
                 queue = asyncio.Queue(maxsize=16)
+
+                async def heartbeat():
+                    nonlocal lease_deadline
+                    while True:
+                        await asyncio.sleep(self.leases.ttl / 3)
+                        # Start the local deadline before Redis work, never after it.
+                        deadline = time.monotonic() + self.leases.ttl
+                        try:
+                            if not await lease_call(self.leases.renew, lease):
+                                await reject(503, "连接租约已失效", "connection_lease_expired")
+                                return
+                            lease_deadline = deadline
+                        except (RedisError, TimeoutError):
+                            await reject(503, "连接治理暂时不可用", "connection_lease_unavailable")
+                            return
 
                 async def pump():
                     while True:
@@ -171,13 +205,19 @@ class GovernanceMiddleware:
 
                 reader = asyncio.create_task(pump())
                 work = asyncio.create_task(self.app(scope, queue.get, output))
+                keeper = asyncio.create_task(heartbeat())
                 try:
-                    completed, _ = await asyncio.wait({reader, work}, return_when=asyncio.FIRST_COMPLETED)
+                    completed, _ = await asyncio.wait({reader, work, keeper}, return_when=asyncio.FIRST_COMPLETED)
                     for task in completed:
                         task.result()
                 finally:
-                    reader.cancel(); work.cancel()
-                    await asyncio.gather(reader, work, return_exceptions=True)
+                    with CancelScope(shield=True):
+                        reader.cancel(); work.cancel(); keeper.cancel()
+                        await asyncio.gather(reader, work, keeper, return_exceptions=True)
+                        try:
+                            await lease_call(self.leases.release, lease)
+                        except (RedisError, TimeoutError):
+                            logging.getLogger("marketlens.governance").warning("connection_lease_release_failed service=%s", self.service_name)
             else:
                 await self.app(scope, receive, output)
         finally:
@@ -203,5 +243,7 @@ def install_governance(app, config, service_name):
     limiter = SharedLimiter(client)
     app.state.governance = limiter
     app.state.governance_service_name = service_name
-    app.add_middleware(GovernanceMiddleware, limiter=limiter, service_name=service_name)
+    leases = ConnectionLeases(client, namespace="marketlens:connections:v1:{" + service_name + "}", per_user=int(os.getenv("WS_MAX_CONNECTIONS_PER_USER", "3")), total=int(os.getenv("WS_MAX_CONNECTIONS_TOTAL", "100")))
+    app.state.connection_leases = leases
+    app.add_middleware(GovernanceMiddleware, limiter=limiter, service_name=service_name, leases=leases)
     return limiter

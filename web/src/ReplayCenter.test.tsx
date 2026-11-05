@@ -21,10 +21,10 @@ class MockWebSocket {
   static instances: MockWebSocket[] = []
   onopen: (() => void) | null = null
   onmessage: ((event: { data: string }) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((event: { code: number; reason: string }) => void) | null = null
   onerror: (() => void) | null = null
   constructor(public url: string) { MockWebSocket.instances.push(this) }
-  close() { this.onclose?.() }
+  close() { this.onclose?.({ code: 1000, reason: '' }) }
   emit(message: unknown) { this.onmessage?.({ data: JSON.stringify(message) }) }
 }
 
@@ -47,6 +47,21 @@ describe('ReplayCenter', () => {
     }))
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+  it.each([
+    [4429, 'connection_limit', '订阅连接已达并发上限，请关闭其他回放页面后刷新重试'],
+    [1013, 'connection_lease_unavailable', '订阅服务暂时不可用，请稍后刷新重试；回放结果仍可在恢复后补拉'],
+  ])('explains subscription rejection %s and stops reconnecting', async (code, reason, message) => {
+    render(<ReplayCenter />)
+    const start = await screen.findByRole('button', { name: '开始回放' })
+    await waitFor(() => expect(start).toBeEnabled())
+    fireEvent.click(start)
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+    const timer = vi.spyOn(globalThis, 'setTimeout')
+    act(() => MockWebSocket.instances[0].onclose?.({ code, reason }))
+    expect(screen.getByRole('alert')).toHaveTextContent(message)
+    expect(timer).not.toHaveBeenCalled()
+  })
 
   it('controls a replay and renders daily calculated results from websocket messages', async () => {
     render(<ReplayCenter />)
