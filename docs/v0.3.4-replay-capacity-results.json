@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-06",
+  "user_accepted": false,
+  "v0_3_4_complete": false,
+  "deployed": true,
+  "regression": {
+    "backend_passed": 128,
+    "frontend_passed": 19,
+    "python_branch_coverage_percent": 76.19,
+    "frontend_build_passed": true
+  },
+  "real_process_checks": {
+    "assets": 39,
+    "processes": 2,
+    "slot_limit": 1,
+    "test_ttl_seconds": 3,
+    "shared_limit": true,
+    "idle_renewal": true,
+    "pause_releases_after_cleanup": true,
+    "killed_owner_expires": true,
+    "lease_loss_pauses_at_committed_day": true,
+    "resumed_sequences": [1, 2],
+    "dates": ["2026-04-27", "2026-04-28"],
+    "baseline_equal": true
+  },
+  "chrome_checks": {
+    "isolated_identity_database": true,
+    "actual_authenticated_page": true,
+    "capacity_error_visible": true,
+    "pending_session_reused": true,
+    "pause_competitor_then_complete_two_days": true,
+    "proxy_preserves_429_code_and_retry_after": true,
+    "browser_errors_on_successful_run": []
+  },
+  "known_issue": {
+    "early_history_nan_snapshot": "unresolved; first browser run received HTTP 500 on pause after a 2015 warmup result; successful browser run uses a 2026 range with sufficient history"
+  },
+  "scope": "Local pipeline, disposable Redis and independent test databases; no Flink crash reconciliation, hard compute isolation, active-active failover or complete early-history JSON acceptance."
+}

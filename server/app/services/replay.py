@@ -9,12 +9,16 @@ from typing import Any
 from uuid import uuid4
 
 import pandas as pd
+from anyio import CancelScope
+from redis.exceptions import RedisError
 
 from app.core.config import AppConfig
+from app.core.leases import ConnectionLeases
 from app.core.observability import log_event
 from app.services.flink import FlinkReplayPipeline
 from app.services.kafka import KafkaReplayPipeline
 from app.services.replay_store import ReplayStore
+from app.services.replay_capacity import ReplayLeaseLost, acquire, lease_call, serialized_control
 from market_core.domain.replay import AssetObservation, ReplayClock, ReplayDayInput, ReplayDayResult
 from market_core.models.replay import HistoricalMarketReplay
 
@@ -71,7 +75,7 @@ class ReplayDataCatalog:
 
 
 class ReplaySession:
-    def __init__(self, session_id: str, dates: tuple[date, ...], speed: float, catalog: ReplayDataCatalog, config: AppConfig, store: ReplayStore, mode: str = "local"):
+    def __init__(self, session_id: str, dates: tuple[date, ...], speed: float, catalog: ReplayDataCatalog, config: AppConfig, store: ReplayStore, mode: str = "local", capacity=None):
         self.id = session_id
         self.mode = mode
         self.clock = ReplayClock(dates, speed)
@@ -102,6 +106,73 @@ class ReplaySession:
         self.recovery_count = 0
         self.recovery_pending = False
         self.rebuild_ms: float | None = None
+        self.capacity = capacity or ConnectionLeases(per_user=1, total=2)
+        self.control_lock = asyncio.Lock()
+        self.compute_lease = None
+        self.lease_deadline = 0.0
+        self.lease_lost = False
+        self.owner_token = None
+        self.cleaning_up = False
+
+    async def reserve(self) -> None:
+        self.compute_lease, self.lease_deadline = await acquire(self.capacity, self.id)
+        self.lease_lost = False
+        try:
+            self.owner_token = self.compute_lease.token
+            self.store.claim(self.id, self.owner_token)
+            stored = self.store.load_session(self.id)
+            if stored:
+                self.restore(stored)
+            self.engine = None
+            self.restore_latest()
+        except BaseException:
+            await self.release()
+            raise
+
+    def restore_latest(self) -> None:
+        latest = self.store.latest_result(self.id)
+        self.latest_result = None
+        if latest:
+            result = latest[1]
+            result["observed_assets"] = tuple(result["observed_assets"])
+            result["alerts"] = tuple(result["alerts"])
+            self.latest_result = ReplayDayResult(**result)
+
+    def require_lease(self) -> None:
+        if self.lease_lost or monotonic() >= self.lease_deadline or not self.store.owns(self.id, self.owner_token):
+            raise ReplayLeaseLost("回放资源租约失效，已暂停；服务恢复后可继续")
+
+    async def release(self) -> None:
+        lease, self.compute_lease = self.compute_lease, None
+        if lease:
+            try:
+                await lease_call(self.capacity, self.capacity.release, lease)
+            except (RedisError, TimeoutError):
+                replay_logger.warning("replay_lease_release_failed session_id=%s", self.id)
+
+    async def keep_lease(self) -> None:
+        while True:
+            await asyncio.sleep(self.capacity.ttl / 3)
+            deadline = monotonic() + self.capacity.ttl
+            try:
+                if not await lease_call(self.capacity, self.capacity.renew, self.compute_lease):
+                    self.lease_lost = True
+                    return
+                self.lease_deadline = deadline
+            except (RedisError, TimeoutError):
+                self.lease_lost = True
+                return
+
+    async def compute(self, method, *args):
+        # Cancelling to_thread does not stop its worker. Drain it before releasing
+        # capacity or allowing restart to replace the engine.
+        work = asyncio.create_task(asyncio.to_thread(method, *args))
+        try:
+            return await asyncio.shield(work)
+        except asyncio.CancelledError:
+            with CancelScope(shield=True):
+                await asyncio.gather(work, return_exceptions=True)
+            raise
 
     def snapshot(self) -> dict[str, Any]:
         total = len(self.clock.dates)
@@ -150,13 +221,13 @@ class ReplaySession:
         }
 
     def persist(self) -> None:
-        self.store.save_session(self.snapshot())
+        self.store.save_session(self.snapshot(), self.owner_token)
 
     def operation(self, action: str, key: str | None, request: dict[str, Any] | None = None) -> dict[str, Any] | None:
         return self.store.operation(self.id, action, key, request or {})
 
     def save_operation(self, action: str, key: str | None, request: dict[str, Any] | None = None) -> None:
-        self.store.save_operation(self.id, action, key, request or {}, self.snapshot())
+        self.store.save_operation(self.id, action, key, request or {}, self.snapshot(), self.owner_token)
 
     def restore(self, stored: dict[str, Any]) -> None:
         self.run_id = stored.get("run_id")
@@ -178,6 +249,7 @@ class ReplaySession:
         self.clock.status = stored["stored_status"]
         self.clock.error = stored.get("error")
         self.timed_days = self.clock.position
+        self.recovery_pending = False
         if self.clock.status in {"running", "paused"}:
             self.clock.status = "paused"
             self.recovery_pending = True
@@ -195,21 +267,36 @@ class ReplaySession:
         self.persist()
         await self.publish({"type": message_type, "session": self.snapshot()})
 
+    @serialized_control
     async def start(self, idempotency_key: str | None = None) -> dict[str, Any]:
+        return await self._start(idempotency_key)
+
+    async def _start(self, idempotency_key: str | None = None, reserved=False) -> dict[str, Any]:
         async with self.lock:
             cached = self.operation("start", idempotency_key)
             if cached:
                 return cached
             if self.clock.status == "running" and self.task and not self.task.done():
                 return self.snapshot()
-            self.clock.start()
-            self.resumed.set()
-            await self.status_message()
-            self.task = asyncio.create_task(self._run())
-            snapshot = self.snapshot()
-            self.save_operation("start", idempotency_key)
-            return snapshot
+            if self.clock.status != "pending":
+                raise ValueError("仅待开始的回放可以启动，暂停会话请使用继续")
+            if not reserved:
+                await self.reserve()
+            try:
+                self.clock.start()
+                self.resumed.set()
+                await self.status_message()
+                self.cleaning_up = False
+                self.task = asyncio.create_task(self._run())
+                snapshot = self.snapshot()
+                self.save_operation("start", idempotency_key)
+                return snapshot
+            except BaseException:
+                if not self.task or self.task.done():
+                    await self.release()
+                raise
 
+    @serialized_control
     async def pause(self, idempotency_key: str | None = None) -> dict[str, Any]:
         async with self.lock:
             cached = self.operation("pause", idempotency_key)
@@ -219,9 +306,14 @@ class ReplaySession:
                 self.clock.pause()
             self.resumed.clear()
             await self.status_message()
+        # The current event finishes under self.lock. Stop idle waits and close
+        # the pipeline before releasing capacity and acknowledging the pause.
+        await self.stop_task()
+        async with self.lock:
             self.save_operation("pause", idempotency_key)
             return self.snapshot()
 
+    @serialized_control
     async def resume(self, idempotency_key: str | None = None) -> dict[str, Any]:
         async with self.lock:
             cached = self.operation("resume", idempotency_key)
@@ -229,18 +321,28 @@ class ReplaySession:
                 return cached
             if self.clock.status == "running" and self.task and not self.task.done():
                 return self.snapshot()
-            self.clock.resume()
-            if self.recovery_pending:
-                self.recovery_state = "rebuilding"
-                self.recovery_count += 1
-            self.resumed.set()
-            await self.status_message()
-            if not self.task or self.task.done():
+            if self.clock.status != "paused":
+                raise ValueError("仅暂停的回放可以继续")
+            await self.reserve()
+            try:
+                self.clock.resume()
+                self.clock.error = None
+                if self.recovery_pending:
+                    self.recovery_state = "rebuilding"
+                    self.recovery_count += 1
+                self.resumed.set()
+                await self.status_message()
+                self.cleaning_up = False
                 self.task = asyncio.create_task(self._run())
-            snapshot = self.snapshot()
-            self.save_operation("resume", idempotency_key)
-            return snapshot
+                snapshot = self.snapshot()
+                self.save_operation("resume", idempotency_key)
+                return snapshot
+            except BaseException:
+                if not self.task or self.task.done():
+                    await self.release()
+                raise
 
+    @serialized_control
     async def set_speed(self, speed: float, idempotency_key: str | None = None) -> dict[str, Any]:
         async with self.lock:
             request = {"speed": speed}
@@ -252,15 +354,14 @@ class ReplaySession:
             self.save_operation("speed", idempotency_key, request)
             return self.snapshot()
 
+    @serialized_control
     async def restart(self, idempotency_key: str | None = None) -> dict[str, Any]:
         async with self.restart_lock:
             cached = self.operation("restart", idempotency_key)
             if cached:
                 return cached
-            task = self.task
-            if task and not task.done():
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
+            await self.stop_task()
+            await self.reserve()
             async with self.lock:
                 self.clock.restart()
                 self.engine = None
@@ -283,9 +384,9 @@ class ReplaySession:
                 self.recovery_pending = False
                 self.rebuild_ms = None
                 snapshot = self.snapshot()
-                self.store.reset_session(snapshot)
+                self.store.reset_session(snapshot, self.owner_token)
                 await self.publish({"type": "replay_reset", "session": snapshot})
-            snapshot = await self.start()
+            snapshot = await self._start(reserved=True)
             self.save_operation("restart", idempotency_key)
             return snapshot
 
@@ -296,8 +397,11 @@ class ReplaySession:
         return engine
 
     async def _run(self) -> None:
+        self.cleaning_up = False
         pipeline = None
+        keeper = asyncio.create_task(self.keep_lease())
         try:
+            self.require_lease()
             remaining_dates = self.clock.dates[self.clock.position:]
             if self.mode == "flink":
                 settings = {**self.config.kafka, "topic": self.config.flink["output_topic"], "produce_topic": self.config.kafka["topic"], "read_committed": True, "emit_end_of_input": True}
@@ -313,7 +417,8 @@ class ReplaySession:
             async with self.lock:
                 if self.engine is None:
                     engine_started = monotonic()
-                    self.engine = await asyncio.to_thread(self._build_engine)
+                    self.engine = await self.compute(self._build_engine)
+                    self.require_lease()
                     self.engine_start_ms = (monotonic() - engine_started) * 1000
                     if self.clock.position and self.recovery_pending:
                         self.rebuild_ms = self.engine_start_ms
@@ -322,6 +427,7 @@ class ReplaySession:
                         self.recovery_state = "completed"
                 pipeline_started = monotonic()
                 await pipeline.start()
+                self.require_lease()
                 self.pipeline_start_ms = (monotonic() - pipeline_started) * 1000
                 self.pipeline_timing = dict(getattr(pipeline, "timing", {}))
                 await self.status_message()
@@ -332,13 +438,17 @@ class ReplaySession:
                 async with self.lock:
                     if self.clock.status == "paused":
                         continue
+                    self.require_lease()
                     event_date = self.clock.advance()
                     day_started = monotonic()
                     batch = await pipeline.next(event_date)
                     input_finished = monotonic()
-                    self.latest_result = await asyncio.to_thread(self.engine.advance, batch)
+                    self.require_lease()
+                    self.latest_result = await self.compute(self.engine.advance, batch)
+                    self.require_lease()
                     model_finished = monotonic()
                     await pipeline.ack(batch)
+                    self.require_lease()
                     day_finished = monotonic()
                     self.last_day_timing = {
                         "event_date": event_date.isoformat(),
@@ -355,7 +465,7 @@ class ReplaySession:
                     if self.clock.position == len(self.clock.dates):
                         self.clock.complete()
                     result = asdict(self.latest_result)
-                    self.store.record_result(self.snapshot(), self.latest_sequence, result)
+                    self.store.record_result(self.snapshot(), self.latest_sequence, result, self.owner_token)
                     await self.publish({"type": "replay_day", "sequence": self.latest_sequence, "session": self.snapshot(), "result": result})
                     log_event(
                         replay_logger,
@@ -369,9 +479,31 @@ class ReplaySession:
                         **{key: round(value, 3) for key, value in self.last_day_timing.items() if isinstance(value, float)},
                     )
                 if self.clock.status == "running":
-                    await asyncio.sleep(self.config.replay["interval_ms"] / 1000 / self.clock.speed)
+                    # Poll only the cancellation/lease flag during long pacing.
+                    remaining = self.config.replay["interval_ms"] / 1000 / self.clock.speed
+                    while remaining > 0:
+                        step = min(remaining, self.capacity.ttl / 3)
+                        await asyncio.sleep(step)
+                        remaining -= step
+                        self.require_lease()
         except asyncio.CancelledError:
+            self.clock.position = self.timed_days
+            if self.clock.status == "running":
+                self.clock.pause()
+            self.engine = None
+            self.restore_latest()
             raise
+        except ReplayLeaseLost as error:
+            async with self.lock:
+                self.clock.position = self.timed_days
+                self.clock.status = "paused"
+                self.clock.error = str(error)
+                self.engine = None
+                self.restore_latest()
+                self.recovery_pending = True
+                self.recovery_state = "paused"
+                if self.store.owns(self.id, self.owner_token):
+                    await self.status_message("replay_error")
         except Exception as error:
             async with self.lock:
                 if self.recovery_state == "rebuilding":
@@ -380,46 +512,75 @@ class ReplaySession:
                     self.clock.fail(str(error))
                 await self.status_message("replay_error")
         finally:
-            if pipeline:
-                self.event_stats = dict(pipeline.stats)
-                try:
-                    await pipeline.close()
-                except Exception as error:
-                    async with self.lock:
+            self.cleaning_up = True
+            cleanup = asyncio.create_task(self.finish_run(pipeline, keeper))
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                with CancelScope(shield=True):
+                    await asyncio.gather(cleanup, return_exceptions=True)
+                raise
+
+    async def finish_run(self, pipeline, keeper) -> None:
+        with CancelScope(shield=True):
+            try:
+                if pipeline:
+                    self.event_stats = dict(pipeline.stats)
+                    try:
+                        await pipeline.close()
+                    except Exception as error:
                         self.clock.status = "failed"
                         self.clock.error = f"回放通道关闭失败：{error}"
-                        await self.status_message("replay_error")
-                finally:
-                    self.pipeline_timing = dict(getattr(pipeline, "timing", {}))
-                    self.flink_job_id = getattr(pipeline, "flink_job_id", None)
-                    self.savepoint_path = getattr(pipeline, "savepoint_path", None) or self.savepoint_path
-                await self.status_message()
-            self.pipeline = None
+                        if self.store.owns(self.id, self.owner_token):
+                            await self.status_message("replay_error")
+                    finally:
+                        self.pipeline_timing = dict(getattr(pipeline, "timing", {}))
+                        self.flink_job_id = getattr(pipeline, "flink_job_id", None)
+                        self.savepoint_path = getattr(pipeline, "savepoint_path", None) or self.savepoint_path
+                if self.clock.status == "paused":
+                    self.recovery_pending = self.engine is None
+                    self.recovery_state = "paused" if self.recovery_pending else self.recovery_state
+                if self.store.owns(self.id, self.owner_token):
+                    await self.status_message()
+            finally:
+                self.pipeline = None
+                keeper.cancel()
+                await asyncio.gather(keeper, return_exceptions=True)
+                await self.release()
 
-    async def close(self) -> None:
+    async def stop_task(self) -> None:
         if self.task and not self.task.done():
-            self.task.cancel()
-            await asyncio.gather(self.task, return_exceptions=True)
+            if not self.cleaning_up:
+                self.task.cancel()
+            with CancelScope(shield=True):
+                await asyncio.gather(self.task, return_exceptions=True)
         self.task = None
-        self.clock.position = self.timed_days
-        if self.clock.status == "running":
-            self.clock.pause()
-        if self.clock.status == "paused":
-            self.recovery_pending = True
-            self.recovery_state = "paused"
-        self.persist()
+        # A task cancelled before its coroutine starts has no finally block.
+        if self.compute_lease:
+            if self.clock.status == "running":
+                self.clock.status = "paused"
+                self.clock.position = self.timed_days
+                self.engine = None
+            if self.store.owns(self.id, self.owner_token):
+                self.persist()
+            await self.release()
+
+    @serialized_control
+    async def close(self) -> None:
+        await self.stop_task()
         self.subscribers.clear()
 
 
 class ReplayManager:
-    def __init__(self, service, config: AppConfig, store: ReplayStore | None = None):
+    def __init__(self, service, config: AppConfig, store: ReplayStore | None = None, capacity=None):
         self.catalog = ReplayDataCatalog(service.series)
         self.config = config
         self.store = store or ReplayStore(config.database_path)
+        self.capacity = capacity or ConnectionLeases(per_user=1, total=2)
         self.sessions: dict[str, ReplaySession] = {}
         for stored in self.store.load_sessions():
             dates = self.catalog.dates_between(date.fromisoformat(stored["start_date"]), date.fromisoformat(stored["end_date"]))
-            session = ReplaySession(stored["id"], dates, stored["speed"], self.catalog, self.config, self.store, stored["mode"])
+            session = ReplaySession(stored["id"], dates, stored["speed"], self.catalog, self.config, self.store, stored["mode"], self.capacity)
             session.restore(stored)
             latest = self.store.latest_result(session.id)
             if latest:
@@ -470,7 +631,7 @@ class ReplayManager:
             raise ValueError("Flink 通道需要同时启用 Kafka 和 Flink，并运行日窗口作业")
         dates = self.catalog.dates_between(start, end)
         session_id = uuid4().hex[:12]
-        session = ReplaySession(session_id, dates, speed, self.catalog, self.config, self.store, mode)
+        session = ReplaySession(session_id, dates, speed, self.catalog, self.config, self.store, mode, self.capacity)
         session.clock.set_speed(speed)
         self.sessions[session_id] = session
         self.current_id = session_id

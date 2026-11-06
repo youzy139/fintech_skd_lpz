@@ -132,6 +132,7 @@ export default function ReplayCenter() {
   async function createAndStart() {
     await perform(async () => {
       const created = await post<ReplaySession>('/api/replay/sessions', { start_date: startDate, end_date: endDate, speed, mode })
+      setSession(created)
       return post<ReplaySession>(`/api/replay/sessions/${created.id}/start`)
     })
   }
@@ -154,12 +155,14 @@ export default function ReplayCenter() {
       <label>事件通道<select aria-label="回放通道" value={mode} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setMode(event.target.value as 'local' | 'kafka' | 'flink')}><option value="local">本地直连</option><option value="kafka" disabled={!kafkaStatus?.enabled}>Kafka 事件{kafkaStatus?.enabled ? '' : '（未启用）'}</option><option value="flink" disabled={!kafkaStatus?.enabled || !flinkStatus?.enabled}>Flink 窗口{kafkaStatus?.enabled && flinkStatus?.enabled ? '' : '（未启用）'}</option></select></label>
       <label className="replay-speed">播放速度<select aria-label="回放速度" value={speed} disabled={busy} onChange={event => void changeSpeed(Number(event.target.value))}>{speeds.map(value => <option key={value} value={value}>{value}×</option>)}</select></label>
       <div className="replay-buttons">
-        {status !== 'running' && status !== 'paused' && <button className="replay-primary" disabled={busy || !startDate || !endDate} onClick={() => void createAndStart()}>开始回放</button>}
+        {status !== 'running' && status !== 'paused' && <button className="replay-primary" disabled={busy || !startDate || !endDate} onClick={() => session?.status === 'pending' ? void perform(() => post(`/api/replay/sessions/${session.id}/start`)) : void createAndStart()}>{session?.status === 'pending' ? '启动此会话' : '开始回放'}</button>}
         {status === 'running' && <button className="replay-primary" disabled={busy} onClick={() => session && void perform(() => post(`/api/replay/sessions/${session.id}/pause`))}>暂停</button>}
         {status === 'paused' && <button className="replay-primary" disabled={busy} onClick={() => session && void perform(() => post(`/api/replay/sessions/${session.id}/resume`))}>继续</button>}
         {session && <button disabled={busy} onClick={() => void perform(() => post(`/api/replay/sessions/${session.id}/restart`))}>从头重开</button>}
       </div>
     </section></fieldset>
+    <p className="method-note">计算名额由服务端统一控制；额度不足时保留会话，请暂停其他回放后重试。暂停完成后释放名额，继续时从已保存的交易日恢复。</p>
+    {session?.error && <div className="error" role="alert">{session.error}</div>}
     <section className="replay-progress" aria-live="polite">
       <div className="replay-progress-head"><div><span className={`replay-status ${status}`}>{statusNames[status]}</span><strong>{session?.current_date ?? '尚未开始'}</strong><small>{connected ? '结果推送已连接' : '等待结果推送连接'}</small></div><b>{session ? `${session.processed_days} / ${session.total_days} 个交易日` : '请选择回放范围'}</b></div>
       <div className="replay-track"><i style={{ width: `${(session?.progress ?? 0) * 100}%` }} /></div>

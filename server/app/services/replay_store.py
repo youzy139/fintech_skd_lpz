@@ -58,6 +58,10 @@ class ReplayStore:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS replay_owners (
+                    session_id TEXT PRIMARY KEY,
+                    token TEXT NOT NULL
+                );
             """)
 
     @staticmethod
@@ -95,12 +99,33 @@ class ReplayStore:
             snapshot.get("savepoint_path"), recovery.get("state", "none"), self._json(snapshot), now, now,
         ))
 
-    def save_session(self, snapshot: dict[str, Any]) -> None:
+    def claim(self, session_id: str, token: str) -> None:
         with self.lock, self.connection:
+            self.connection.execute("INSERT INTO replay_owners VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET token = excluded.token", (session_id, token))
+
+    def owns(self, session_id: str, token: str) -> bool:
+        with self.lock:
+            row = self.connection.execute("SELECT token FROM replay_owners WHERE session_id = ?", (session_id,)).fetchone()
+        return bool(row and row["token"] == token)
+
+    def _guard(self, session_id: str, token: str | None) -> None:
+        from app.services.replay_capacity import ReplayLeaseLost
+
+        # Take SQLite's writer lock before checking the token. The ownership
+        # check and subsequent result/snapshot write share one transaction.
+        self.connection.execute("UPDATE replay_owners SET token = token WHERE session_id = ?", (session_id,))
+        row = self.connection.execute("SELECT token FROM replay_owners WHERE session_id = ?", (session_id,)).fetchone()
+        if row and row["token"] != token:
+            raise ReplayLeaseLost("回放执行权已转移，请刷新会话后重试")
+
+    def save_session(self, snapshot: dict[str, Any], owner: str | None = None) -> None:
+        with self.lock, self.connection:
+            self._guard(snapshot["id"], owner)
             self._save_session(snapshot)
 
-    def record_result(self, snapshot: dict[str, Any], sequence: int, result: dict[str, Any]) -> None:
+    def record_result(self, snapshot: dict[str, Any], sequence: int, result: dict[str, Any], owner: str | None = None) -> None:
         with self.lock, self.connection:
+            self._guard(snapshot["id"], owner)
             self.connection.execute("""
                 INSERT INTO replay_results (session_id, sequence, event_date, result_json, created_at)
                 VALUES (?, ?, ?, ?, ?)
@@ -108,8 +133,9 @@ class ReplayStore:
             """, (snapshot["id"], sequence, result["event_time"], self._json(result), self._now()))
             self._save_session(snapshot)
 
-    def reset_session(self, snapshot: dict[str, Any]) -> None:
+    def reset_session(self, snapshot: dict[str, Any], owner: str | None = None) -> None:
         with self.lock, self.connection:
+            self._guard(snapshot["id"], owner)
             self.connection.execute("DELETE FROM replay_results WHERE session_id = ?", (snapshot["id"],))
             self._save_session(snapshot)
 
@@ -137,6 +163,11 @@ class ReplayStore:
             """, (session_id,)).fetchone()
         return (row["sequence"], json.loads(row["result_json"])) if row else None
 
+    def load_session(self, session_id: str) -> dict[str, Any] | None:
+        with self.lock:
+            row = self.connection.execute("SELECT snapshot_json, position, status FROM replay_sessions WHERE id = ?", (session_id,)).fetchone()
+        return {**json.loads(row["snapshot_json"]), "stored_position": row["position"], "stored_status": row["status"]} if row else None
+
     def set_current(self, session_id: str) -> None:
         with self.lock, self.connection:
             self.connection.execute("INSERT INTO replay_metadata (key, value) VALUES ('current_session_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (session_id,))
@@ -160,10 +191,11 @@ class ReplayStore:
             raise ValueError("同一幂等键不能用于不同请求")
         return json.loads(row["snapshot_json"])
 
-    def save_operation(self, session_id: str, action: str, key: str | None, request: dict[str, Any], snapshot: dict[str, Any]) -> None:
+    def save_operation(self, session_id: str, action: str, key: str | None, request: dict[str, Any], snapshot: dict[str, Any], owner: str | None = None) -> None:
         if not key:
             return
         with self.lock, self.connection:
+            self._guard(session_id, owner)
             self.connection.execute("""
                 INSERT INTO replay_operations (session_id, action, idempotency_key, request_json, snapshot_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)

@@ -245,5 +245,6 @@ def install_governance(app, config, service_name):
     app.state.governance_service_name = service_name
     leases = ConnectionLeases(client, namespace="marketlens:connections:v1:{" + service_name + "}", per_user=int(os.getenv("WS_MAX_CONNECTIONS_PER_USER", "3")), total=int(os.getenv("WS_MAX_CONNECTIONS_TOTAL", "100")))
     app.state.connection_leases = leases
+    app.state.replay_leases = ConnectionLeases(client, namespace="marketlens:replay:v1:{compute}", per_user=1, total=int(os.getenv("REPLAY_MAX_RUNNING", "2")))
     app.add_middleware(GovernanceMiddleware, limiter=limiter, service_name=service_name, leases=leases)
     return limiter

@@ -48,6 +48,25 @@ describe('ReplayCenter', () => {
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
+  it('retains a rejected pending session and retries without creating another', async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!
+    let rejected = true
+    vi.mocked(fetch).mockImplementation((...args) => {
+      if (String(args[0]).endsWith('/start') && rejected) return Promise.resolve({ ok: false, status: 429, json: async () => ({ detail: '回放计算已达并发上限，请暂停其他回放后重试' }) } as Response)
+      return originalFetch(...args)
+    })
+    render(<ReplayCenter />)
+    const start = await screen.findByRole('button', { name: '开始回放' })
+    await waitFor(() => expect(start).toBeEnabled())
+    fireEvent.click(start)
+    expect(await screen.findByRole('alert')).toHaveTextContent('并发上限')
+    expect(screen.getByText('待开始')).toBeInTheDocument()
+    rejected = false
+    fireEvent.click(screen.getByRole('button', { name: '启动此会话' }))
+    expect(await screen.findByRole('button', { name: '暂停' })).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls.filter(([path]) => path === '/api/replay/sessions')).toHaveLength(1)
+  })
+
   it.each([
     [4429, 'connection_limit', '订阅连接已达并发上限，请关闭其他回放页面后刷新重试'],
     [1013, 'connection_lease_unavailable', '订阅服务暂时不可用，请稍后刷新重试；回放结果仍可在恢复后补拉'],

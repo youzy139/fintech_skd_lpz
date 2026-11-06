@@ -32,6 +32,7 @@ from app.services.remote_catalog import DataServiceError
 from app.services.remote_feature import FeatureServiceError, RemoteFeatureService
 from app.services.replay import ReplayManager
 from app.services.replay_store import ReplayStore
+from app.services.replay_capacity import ReplayCapacityError
 
 
 @strawberry.type
@@ -91,7 +92,7 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
             app.state.replays = None
         else:
             store = replay_store or (ReplayStore(":memory:") if not initialize else None)
-            app.state.replays = ReplayManager(app.state.service, config, store)
+            app.state.replays = ReplayManager(app.state.service, config, store, app.state.replay_leases)
             app.state.service.replay_manager = app.state.replays
         try:
             yield
@@ -111,6 +112,10 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
     requests: dict[str, deque[float]] = defaultdict(deque)
     app.middleware("http")(build_request_middleware(app.state.metrics, requests, service_name=service_name))
     install_error_handlers(app)
+
+    @app.exception_handler(ReplayCapacityError)
+    async def replay_capacity_error(_: Request, error: ReplayCapacityError):
+        return error_response(error.status_code, error.code, error.detail, error.detail, error.headers)
     if service_name == "marketlens-api":
         app.include_router(auth_router)
 
