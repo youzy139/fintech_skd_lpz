@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import replace
 from types import SimpleNamespace
@@ -122,3 +123,26 @@ def test_create_idempotency_key_reuses_session_and_rejects_mismatch(monkeypatch,
         mismatch = http.post("/api/replay/sessions", json={**payload, "speed": 2}, headers={"Idempotency-Key": "create-1"})
         assert mismatch.status_code == 422
         assert "幂等键" in mismatch.json()["detail"]
+
+
+def test_legacy_non_finite_payloads_are_null_when_read(tmp_path):
+    store = ReplayStore(tmp_path / "legacy-replay.db")
+    result = {"event_time": "2024-01-01", "features": {"momentum": float("nan"), "correlation": float("inf")}}
+    snapshot = {
+        "id": "legacy", "mode": "local", "status": "paused", "start_date": "2024-01-01",
+        "end_date": "2024-01-02", "speed": 1, "processed_days": 1, "latest_result": result,
+    }
+    store.save_session(snapshot)
+    store.record_result(snapshot, 1, result)
+    store.save_operation("legacy", "pause", "pause-1", {}, snapshot)
+    with store.lock, store.connection:
+        store.connection.execute("UPDATE replay_sessions SET snapshot_json = ? WHERE id = 'legacy'", (json.dumps(snapshot),))
+        store.connection.execute("UPDATE replay_results SET result_json = ? WHERE session_id = 'legacy'", (json.dumps(result),))
+        store.connection.execute("UPDATE replay_operations SET snapshot_json = ? WHERE session_id = 'legacy'", (json.dumps(snapshot),))
+
+    assert store.load_sessions()[0]["latest_result"]["features"] == {"momentum": None, "correlation": None}
+    assert store.load_session("legacy")["latest_result"]["features"]["momentum"] is None
+    assert store.latest_result("legacy")[1]["features"]["correlation"] is None
+    assert store.results("legacy")["results"][0]["result"]["features"]["momentum"] is None
+    assert store.operation("legacy", "pause", "pause-1", {})["latest_result"]["features"]["correlation"] is None
+    store.close()

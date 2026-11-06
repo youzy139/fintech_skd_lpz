@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import date
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import time
@@ -174,3 +175,55 @@ def test_single_day_completion_always_includes_the_daily_result():
         assert timing["last_day"]["model_ms"] >= 0
         assert timing["last_day"]["ack_ms"] >= 0
         assert timing["last_day"]["total_ms"] >= timing["last_day"]["model_ms"]
+
+
+def test_early_history_non_finite_values_are_null_across_replay_transports(monkeypatch):
+    series = sample_series(80)
+    catalog = ReplayDataCatalog(series)
+    original_advance = HistoricalMarketReplay.advance
+
+    def advance_with_incomplete_windows(self, batch):
+        result = original_advance(self, batch)
+        if result.features:
+            result.features["momentum"] = float("nan")
+            result.features["correlation"] = float("inf")
+        return result
+
+    monkeypatch.setattr(HistoricalMarketReplay, "advance", advance_with_incomplete_windows)
+    start = catalog.dates[65].isoformat()
+    end = catalog.dates[67].isoformat()
+    with TestClient(create_app(SimpleNamespace(series=series), initialize=False)) as http:
+        created = http.post("/api/replay/sessions", json={"start_date": start, "end_date": end, "speed": 10}).json()
+        session_id = created["id"]
+        with http.websocket_connect(f"/ws/replay/{session_id}") as websocket:
+            assert websocket.receive_json()["type"] == "replay_snapshot"
+            started = http.post(f"/api/replay/sessions/{session_id}/start")
+            assert started.status_code == 200
+            json.dumps(started.json(), allow_nan=False)
+            while True:
+                day = websocket.receive_json()
+                if day["type"] == "replay_error":
+                    raise AssertionError(day["session"]["error"])
+                if day["type"] == "replay_day" and "momentum" in day["result"]["features"]:
+                    break
+            json.dumps(day, allow_nan=False)
+            assert day["result"]["state"] is None
+            assert day["result"]["features"]["momentum"] is None
+            assert day["result"]["features"]["correlation"] is None
+            assert day["result"]["features"]["sample_count"] == 2
+
+            paused = http.post(f"/api/replay/sessions/{session_id}/pause")
+            assert paused.status_code == 200
+            assert paused.json()["status"] == "paused"
+            json.dumps(paused.json(), allow_nan=False)
+
+        current = http.get("/api/replay/sessions/current")
+        detail = http.get(f"/api/replay/sessions/{session_id}")
+        results = http.get(f"/api/replay/sessions/{session_id}/results?after=0&limit=100")
+        for response in (current, detail, results):
+            assert response.status_code == 200
+            json.dumps(response.json(), allow_nan=False)
+        latest = results.json()["results"][-1]["result"]
+        assert latest["features"]["momentum"] is None
+        assert latest["features"]["correlation"] is None
+        assert latest["state"] is None

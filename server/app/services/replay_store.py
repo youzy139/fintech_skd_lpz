@@ -7,6 +7,8 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+from app.core.serialization import json_compatible
+
 
 class ReplayStore:
     def __init__(self, path: str | Path):
@@ -70,7 +72,7 @@ class ReplayStore:
 
     @staticmethod
     def _json(value: Any) -> str:
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        return json.dumps(json_compatible(value), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
     def _save_session(self, snapshot: dict[str, Any]) -> None:
         now = self._now()
@@ -142,7 +144,7 @@ class ReplayStore:
     def load_sessions(self) -> list[dict[str, Any]]:
         with self.lock:
             rows = self.connection.execute("SELECT * FROM replay_sessions ORDER BY updated_at").fetchall()
-        return [{**json.loads(row["snapshot_json"]), "stored_position": row["position"], "stored_status": row["status"]} for row in rows]
+        return [{**json_compatible(json.loads(row["snapshot_json"])), "stored_position": row["position"], "stored_status": row["status"]} for row in rows]
 
     def results(self, session_id: str, after: int = 0, limit: int = 100) -> dict[str, Any]:
         bounded_limit = max(1, min(limit, 100))
@@ -151,7 +153,7 @@ class ReplayStore:
                 SELECT sequence, event_date, result_json FROM replay_results
                 WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT ?
             """, (session_id, after, bounded_limit + 1)).fetchall()
-        items = [{"sequence": row["sequence"], "event_date": row["event_date"], "result": json.loads(row["result_json"])} for row in rows[:bounded_limit]]
+        items = [{"sequence": row["sequence"], "event_date": row["event_date"], "result": json_compatible(json.loads(row["result_json"]))} for row in rows[:bounded_limit]]
         next_sequence = items[-1]["sequence"] if items else after
         return {"session_id": session_id, "results": items, "next_sequence": next_sequence, "has_more": len(rows) > bounded_limit}
 
@@ -161,12 +163,12 @@ class ReplayStore:
                 SELECT sequence, result_json FROM replay_results
                 WHERE session_id = ? ORDER BY sequence DESC LIMIT 1
             """, (session_id,)).fetchone()
-        return (row["sequence"], json.loads(row["result_json"])) if row else None
+        return (row["sequence"], json_compatible(json.loads(row["result_json"]))) if row else None
 
     def load_session(self, session_id: str) -> dict[str, Any] | None:
         with self.lock:
             row = self.connection.execute("SELECT snapshot_json, position, status FROM replay_sessions WHERE id = ?", (session_id,)).fetchone()
-        return {**json.loads(row["snapshot_json"]), "stored_position": row["position"], "stored_status": row["status"]} if row else None
+        return {**json_compatible(json.loads(row["snapshot_json"])), "stored_position": row["position"], "stored_status": row["status"]} if row else None
 
     def set_current(self, session_id: str) -> None:
         with self.lock, self.connection:
@@ -189,7 +191,7 @@ class ReplayStore:
             return None
         if json.loads(row["request_json"]) != request:
             raise ValueError("同一幂等键不能用于不同请求")
-        return json.loads(row["snapshot_json"])
+        return json_compatible(json.loads(row["snapshot_json"]))
 
     def save_operation(self, session_id: str, action: str, key: str | None, request: dict[str, Any], snapshot: dict[str, Any], owner: str | None = None) -> None:
         if not key:

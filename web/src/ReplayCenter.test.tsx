@@ -1,7 +1,7 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReplayCenter from './ReplayCenter'
-import type { ReplaySession } from './types'
+import type { ReplayResult, ReplaySession } from './types'
 
 const session: ReplaySession = {
   id: 'replay-1', run_id: 'run-1', mode: 'local', start_date: '2024-03-04', end_date: '2024-03-06', status: 'running', speed: 1, processed_days: 0, total_days: 3, current_date: null, progress: 0, error: null,
@@ -9,13 +9,13 @@ const session: ReplaySession = {
   timing: { engine_start_ms: 12.3, pipeline_start_ms: 4.2, last_day: { event_date: '2024-03-04', input_ms: 3.1, model_ms: 45.6, ack_ms: 0.8, total_ms: 49.5 }, processed_days: 1, total_day_ms: 49.5, average_day_ms: 49.5, max_day_ms: 49.5, pipeline: {} },
   latest_result: null,
 }
-const result = {
+const result: ReplayResult = {
   event_time: '2024-03-06', replay_time: '2024-03-06T10:00:00Z', input_start: '2024-01-01', input_end: '2024-03-06', input_records: 2, observed_assets: ['A', 'B'],
   features: { market_return: 0.01, volatility: 0.2, momentum: 0.05, correlation: 0.3, trend: 0.02, sample_count: 2 },
   state: { date: '2024-03-06', label: '趋势上涨 · C0', confidence: 0.82, model_version: 'walk-forward-20240305', trained_through: '2024-03-05', features: { volatility: 0.2, momentum: 0.05, correlation: 0.3, sample_count: 2 }, contributions: [] },
   alerts: [], model_version: 'walk-forward-20240305',
 }
-let backfillResults: { sequence: number; event_date: string; result: typeof result }[] = []
+let backfillResults: { sequence: number; event_date: string; result: ReplayResult }[] = []
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -173,5 +173,29 @@ describe('ReplayCenter', () => {
     act(() => socket.emit({ type: 'replay_day', sequence: 1, session: { ...session, latest_sequence: 1, latest_result: result }, result }))
     expect(screen.getByText('结果序列').nextElementSibling?.textContent).toBe('1')
     expect(screen.getByText('趋势上涨 · C0')).toBeInTheDocument()
+  })
+
+  it('renders missing warm-up features from backfill without treating them as zero', async () => {
+    const missing: ReplayResult = {
+      ...result,
+      state: null,
+      model_version: 'walk-forward-warm-up',
+      features: { ...result.features, momentum: null, correlation: null },
+    }
+    backfillResults = [{ sequence: 1, event_date: missing.event_time, result: missing }]
+    render(<ReplayCenter />)
+    const start = await screen.findByRole('button', { name: '开始回放' })
+    await waitFor(() => expect(start).toBeEnabled())
+    fireEvent.click(start)
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+    act(() => MockWebSocket.instances[0].onopen?.())
+
+    expect(await screen.findByText('历史特征准备中')).toBeInTheDocument()
+    expect(screen.getByText('有效历史不足时不强行识别')).toBeInTheDocument()
+    expect(screen.getByText(/“—”表示历史窗口不足或无法计算，不代表 0/)).toBeInTheDocument()
+    const features = screen.getByRole('heading', { name: '当日特征' }).closest('section')!
+    expect(within(features).getAllByText('—')).toHaveLength(2)
+    expect(within(features).queryByText('0.00%')).not.toBeInTheDocument()
+    expect(within(features).queryByText('0.000')).not.toBeInTheDocument()
   })
 })

@@ -15,6 +15,7 @@ from redis.exceptions import RedisError
 from app.core.config import AppConfig
 from app.core.leases import ConnectionLeases
 from app.core.observability import log_event
+from app.core.serialization import json_compatible
 from app.services.flink import FlinkReplayPipeline
 from app.services.kafka import KafkaReplayPipeline
 from app.services.replay_store import ReplayStore
@@ -185,7 +186,7 @@ class ReplaySession:
         if self.last_day_timing:
             last_day = {key: round(value, 3) if isinstance(value, float) else value for key, value in self.last_day_timing.items()}
         current_date = self.clock.dates[self.timed_days - 1].isoformat() if self.timed_days else None
-        return {
+        return json_compatible({
             "id": self.id,
             "run_id": self.run_id,
             "flink_job_id": self.flink_job_id,
@@ -218,7 +219,7 @@ class ReplaySession:
                 "pipeline": {key: round(value, 3) for key, value in self.pipeline_timing.items()},
             },
             "latest_result": asdict(self.latest_result) if self.latest_result else None,
-        }
+        })
 
     def persist(self) -> None:
         self.store.save_session(self.snapshot(), self.owner_token)
@@ -464,7 +465,7 @@ class ReplaySession:
                     self.pipeline_timing = dict(getattr(pipeline, "timing", {}))
                     if self.clock.position == len(self.clock.dates):
                         self.clock.complete()
-                    result = asdict(self.latest_result)
+                    result = json_compatible(asdict(self.latest_result))
                     self.store.record_result(self.snapshot(), self.latest_sequence, result, self.owner_token)
                     await self.publish({"type": "replay_day", "sequence": self.latest_sequence, "session": self.snapshot(), "result": result})
                     log_event(

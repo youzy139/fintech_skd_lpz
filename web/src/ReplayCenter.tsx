@@ -15,7 +15,8 @@ function post<T>(path: string, body?: unknown) {
   return api<T>(path, undefined, { method: 'POST', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
 }
 
-function percent(value: number) { return `${(value * 100).toFixed(2)}%` }
+function percent(value: number | null | undefined) { return value === null || value === undefined ? '—' : `${(value * 100).toFixed(2)}%` }
+function featureValue(key: string, value: number | null) { return value === null ? '—' : key === 'correlation' ? value.toFixed(3) : key === 'sample_count' ? value.toFixed(0) : percent(value) }
 function milliseconds(value: number | null | undefined) { return value === null || value === undefined ? '—' : `${value.toFixed(value >= 100 ? 0 : 1)} ms` }
 
 export default function ReplayCenter() {
@@ -179,7 +180,7 @@ export default function ReplayCenter() {
       </div>
       <div className="grid equal">
         <section className="panel"><div className="panel-head"><div><h2>当日输入与模型证据</h2><p>结果可追溯到事件日期、输入范围和模型版本</p></div></div><dl className="replay-facts"><div><dt>事件时间</dt><dd>{result.event_time}</dd></div><div><dt>可见输入范围</dt><dd>{result.input_start} 至 {result.input_end}</dd></div><div><dt>当日新增行情</dt><dd>{result.input_records} 条 · {result.observed_assets.length} 个资产</dd></div><div><dt>模型版本</dt><dd>{result.model_version}</dd></div><div><dt>训练数据截至</dt><dd>{state?.trained_through ?? '尚未进入识别阶段'}</dd></div><div><dt>实际处理时间</dt><dd>{new Date(result.replay_time).toLocaleString('zh-CN')}</dd></div></dl></section>
-        <section className="panel"><div className="panel-head"><div><h2>当日特征</h2><p>特征在追加当日输入后重新计算</p></div></div><div className="replay-features">{Object.entries(result.features).map(([key, value]) => <div key={key}><span>{featureNames[key] ?? key}</span><strong>{key === 'correlation' ? value.toFixed(3) : key === 'sample_count' ? value.toFixed(0) : percent(value)}</strong></div>)}</div></section>
+        <section className="panel"><div className="panel-head"><div><h2>当日特征</h2><p>特征在追加当日输入后重新计算；“—”表示历史窗口不足或无法计算，不代表 0</p></div></div><div className="replay-features">{Object.entries(result.features).map(([key, value]) => <div key={key}><span>{featureNames[key] ?? key}</span><strong title={value === null ? '当前可见历史不足，暂无法计算' : undefined}>{featureValue(key, value)}</strong></div>)}</div></section>
       </div>
       <section className="panel"><div className="panel-head"><div><h2>当日新增预警</h2><p>只显示当前事件日新触发的规则</p></div></div>{result.alerts.length ? <div className="alert-list">{result.alerts.map((item, index) => <article className="alert" key={`${item.rule}-${index}`}><span className={`alert-level ${item.level}`}>{item.level === 'high' ? '高' : '中'}</span><div><h3>{item.title}<small>{item.rule}</small></h3><p>{item.evidence}</p></div><time>{item.date}</time></article>)}</div> : <div className="empty">当前事件日没有新增预警</div>}</section>
     </> : <div className="replay-empty"><h3>等待第一批历史数据</h3><p>开始后会在这里展示逐日计算结果。切换页面不会终止后端会话，返回时可重新接上结果推送。</p></div>}

@@ -24,6 +24,7 @@ from app.core.config import load_config
 from app.core.auth import auth_enabled, install_auth, require_domain
 from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, current_request_id, error_response, install_error_handlers
+from app.core.serialization import json_compatible
 from app.services.alert_proxy import forward_alert_request
 from app.services.feature_proxy import forward_feature_request, forward_feature_websocket
 from app.services.market import MarketService
@@ -175,9 +176,9 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
             session.subscribers.add(queue)
             app.state.metrics.websocket_connected()
             try:
-                await websocket.send_json({"type": "replay_snapshot", "session": session.snapshot()})
+                await websocket.send_json(json_compatible({"type": "replay_snapshot", "session": session.snapshot()}))
                 while True:
-                    await websocket.send_json(await queue.get())
+                    await websocket.send_json(json_compatible(await queue.get()))
             finally:
                 session.subscribers.discard(queue)
                 app.state.metrics.websocket_disconnected()
@@ -191,7 +192,7 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
                 end = min(len(service.states), max(0, start_index) + max(1, min(max_messages, 100)))
                 for index in range(max(0, start_index), end):
                     state = service.states[index]
-                    await websocket.send_json({"type": "market_state", "event_time": state["date"], "replay_time": asyncio.get_running_loop().time(), "state": state, "alerts": [item for item in service.alerts if item["date"] == state["date"]]})
+                    await websocket.send_json(json_compatible({"type": "market_state", "event_time": state["date"], "replay_time": asyncio.get_running_loop().time(), "state": state, "alerts": [item for item in service.alerts if item["date"] == state["date"]]}))
                     await asyncio.sleep(config.replay["interval_ms"] / 1000)
                 await websocket.send_json({"type": "replay_complete", "sent": end - max(0, start_index)})
                 await websocket.close()
