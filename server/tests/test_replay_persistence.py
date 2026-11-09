@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import replace
@@ -107,6 +108,63 @@ def test_unfinished_session_recovers_from_saved_results(monkeypatch, tmp_path):
         expected = engine.advance(catalog.read(day))
     assert completed["latest_result"]["state"] == expected.state
     assert completed["latest_result"]["features"] == expected.features
+
+
+def test_flink_resume_passes_saved_savepoint_to_the_new_pipeline(monkeypatch, tmp_path):
+    from app.services.replay import ReplayManager
+
+    series = sample_series()
+    catalog = ReplayDataCatalog(series)
+    days = catalog.dates[45:48]
+    started_savepoints = []
+
+    class Pipeline:
+        def __init__(self, session_id, remaining_dates, data, settings, flink_settings):
+            self.catalog = data
+            self.stats = {"produced_events": 0, "consumed_events": 0, "duplicate_events": 0, "retry_count": 0, "commit_count": 0}
+            self.timing = {}
+            self.run_id = "run"
+            self.flink_job_id = "job"
+            self.savepoint_path = None
+
+        async def start(self):
+            started_savepoints.append(self.savepoint_path)
+
+        async def next(self, expected_date):
+            if len(started_savepoints) == 1 and expected_date == days[1]:
+                await asyncio.sleep(0.1)
+            return self.catalog.read(expected_date)
+
+        async def ack(self, batch):
+            pass
+
+        async def close(self):
+            self.savepoint_path = "file:///stopped"
+
+    monkeypatch.setattr("app.services.replay.FlinkReplayPipeline", Pipeline)
+
+    async def scenario():
+        config = replace(load_config(), database_path=tmp_path / "flink-resume.db", replay={"interval_ms": 0}, kafka={"enabled": True, "topic": "input"}, flink={"enabled": True, "output_topic": "features"})
+        owner = ReplayManager(SimpleNamespace(series=series), config)
+        session = owner.get(owner.create(days[0], days[-1], 10, "flink")["id"])
+        try:
+            await session.start()
+            for _ in range(1000):
+                if session.timed_days:
+                    break
+                await asyncio.sleep(0.01)
+            await session.pause()
+            await session.resume()
+            for _ in range(1000):
+                if session.clock.status == "completed" and not session.task:
+                    break
+                await asyncio.sleep(0.01)
+            assert session.clock.status == "completed"
+        finally:
+            await owner.close()
+
+    asyncio.run(scenario())
+    assert started_savepoints == [None, "file:///stopped"]
 
 
 def test_create_idempotency_key_reuses_session_and_rejects_mismatch(monkeypatch, tmp_path):

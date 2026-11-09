@@ -92,7 +92,10 @@ def test_pipeline_starts_job_before_kafka_and_stops_own_job(monkeypatch):
     events = []
 
     class Jobs:
-        async def start(self, session_id, run_id, settings):
+        async def stop_stale(self, session_id, run_id):
+            return []
+
+        async def start(self, session_id, run_id, settings, savepoint_path=None):
             events.append(("job-start", session_id, run_id))
             return "job-1"
 
@@ -119,3 +122,74 @@ def test_pipeline_starts_job_before_kafka_and_stops_own_job(monkeypatch):
     asyncio.run(scenario())
     assert events[0][:2] == ("job-start", "session")
     assert events[1:] == [("kafka-start",), ("kafka-close",), ("job-stop", "job-1")]
+
+
+def test_stale_job_cleanup_is_scoped_to_the_exact_session_and_run():
+    manager = FlinkJobManager(FLINK_SETTINGS)
+    stopped = []
+    manager._request_sync = lambda path: {
+        "jobs": [
+            {"jid": "orphan", "name": "MarketLens event-time daily windows session/run", "state": "RUNNING"},
+            {"jid": "other-run", "name": "MarketLens event-time daily windows session/other", "state": "RUNNING"},
+            {"jid": "other-session", "name": "MarketLens event-time daily windows other/run", "state": "RUNNING"},
+            {"jid": "finished", "name": "MarketLens event-time daily windows session/run", "state": "FINISHED"},
+        ]
+    }
+    manager._stop_sync = lambda job_id: stopped.append(job_id) or "file:///crash-savepoint"
+    assert asyncio.run(manager.stop_stale("session", "run")) == [{"job_id": "orphan", "savepoint_path": "file:///crash-savepoint"}]
+    assert stopped == ["orphan"]
+
+
+def test_pipeline_cleans_stale_jobs_and_restores_latest_savepoint(monkeypatch):
+    calls = []
+
+    class Jobs:
+        async def stop_stale(self, session_id, run_id):
+            calls.append(("cleanup", session_id, run_id))
+            return [{"job_id": "orphan", "savepoint_path": "file:///crash-savepoint"}]
+
+        async def start(self, session_id, run_id, settings, savepoint_path=None):
+            calls.append(("start", savepoint_path))
+            return "new-job"
+
+    async def kafka_start(self):
+        calls.append(("kafka-start",))
+
+    monkeypatch.setattr(KafkaReplayPipeline, "start", kafka_start)
+
+    async def scenario():
+        pipeline = FlinkReplayPipeline("session", (date(2024, 1, 1),), None, KAFKA_SETTINGS, FLINK_SETTINGS)
+        pipeline.jobs = Jobs()
+        pipeline.run_id = "run"
+        pipeline.savepoint_path = "file:///committed-savepoint"
+        await pipeline.start()
+        assert pipeline.stats["stale_jobs_stopped"] == 1
+
+    asyncio.run(scenario())
+    assert calls == [("cleanup", "session", "run"), ("start", "file:///crash-savepoint"), ("kafka-start",)]
+
+
+def test_pipeline_uses_committed_savepoint_when_no_stale_job_exists(monkeypatch):
+    calls = []
+
+    class Jobs:
+        async def stop_stale(self, session_id, run_id):
+            return []
+
+        async def start(self, session_id, run_id, settings, savepoint_path=None):
+            calls.append(savepoint_path)
+            return "new-job"
+
+    async def kafka_start(self):
+        pass
+
+    monkeypatch.setattr(KafkaReplayPipeline, "start", kafka_start)
+
+    async def scenario():
+        pipeline = FlinkReplayPipeline("session", (date(2024, 1, 1),), None, KAFKA_SETTINGS, FLINK_SETTINGS)
+        pipeline.jobs = Jobs()
+        pipeline.savepoint_path = "file:///committed-savepoint"
+        await pipeline.start()
+
+    asyncio.run(scenario())
+    assert calls == ["file:///committed-savepoint"]

@@ -197,6 +197,12 @@ LLM 不得直接修改原始行情、特征、状态标签、已触发预警或�
 - `/api/replay/sessions/{id}/results?after=N&limit=100` 提供结果补拉，WebSocket 逐日消息带序列号。前端自动重连、忽略旧序号，并用重开代次阻止上一轮补拉污染新结果。创建和控制操作支持 `Idempotency-Key`。
 - 真实 Docker 重启已验证首日保留、三日序列完整、运行 ID 不变和新作业 ID；真实 Chrome 已验证恢复展示及刷新后的结果补拉。详见 [回放持久化与恢复](v0.3.4-replay-persistence.md)。
 
+### v0.3.4 Kafka/Flink 异常治理
+
+- Flink 恢复在取得新计算租约后，通过作业全名精确匹配当前 `session_id + run_id` 的非终态旧作业，逐个停止并生成 Savepoint，再把最新有效 Savepoint 传给新作业。不得清理其他会话、其他运行或外部作业。
+- 页面展示遗留作业清理数量和实际耗时。可选 Flink 编排同时配置主后端与实际执行回放的特征服务。
+- 进程崩溃后的作业在下次恢复该会话时接管，不是崩溃瞬间终止；不做全集群自动清理。详见 [异常治理与故障演练](v0.3.4-replay-faults.md)。
+
 ### v0.3.4 数据服务独立部署
 
 - `app.data_service:app` 只组装数据目录、健康和进程指标接口，不加载市场模型或回放管理器。`DataCatalogService` 独占目录查询与 Redis 缓存组装，主后端通过 `RemoteCatalogClient` 复用同一 REST 契约。

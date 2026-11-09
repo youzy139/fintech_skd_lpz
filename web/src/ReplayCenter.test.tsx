@@ -142,11 +142,12 @@ describe('ReplayCenter', () => {
     })
     act(() => MockWebSocket.instances[0].emit({
       type: 'replay_status',
-      session: { ...session, mode: 'flink', flink_job_id: 'job-1', savepoint_path: 'file:///savepoints/savepoint-1', timing: { ...session.timing, pipeline: { job_start_ms: 5000, job_stop_ms: 1200 } } },
+      session: { ...session, mode: 'flink', flink_job_id: 'job-1', savepoint_path: 'file:///savepoints/savepoint-1', event_stats: { ...session.event_stats, stale_jobs_stopped: 1 }, timing: { ...session.timing, pipeline: { stale_job_stop_ms: 800, job_start_ms: 5000, job_stop_ms: 1200 } } },
     }))
     expect(screen.getByText('Flink 作业 ID')).toBeInTheDocument()
     expect(screen.getByText('job-1')).toBeInTheDocument()
     expect(screen.getByText('file:///savepoints/savepoint-1')).toBeInTheDocument()
+    expect(screen.getByTitle('只清理由本系统识别、且属于当前会话和运行的旧作业')).toHaveTextContent('遗留作业清理 1')
     expect(screen.getByText('作业与首检查点就绪')).toBeInTheDocument()
     expect(screen.getByText('Savepoint 停止')).toBeInTheDocument()
   })

@@ -13,6 +13,13 @@ services:
     depends_on:
       flink-submit: {condition: service_completed_successfully}
 
+  feature-service:
+    environment:
+      FLINK_ENABLED: "true"
+      FLINK_REST_URL: http://jobmanager:8081
+    depends_on:
+      flink-submit: {condition: service_completed_successfully}
+
   jobmanager:
     <<: *flink-image
     command: ["jobmanager"]

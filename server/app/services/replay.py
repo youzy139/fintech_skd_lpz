@@ -413,6 +413,8 @@ class ReplaySession:
                 pipeline = LocalReplayPipeline(remaining_dates, self.catalog)
             if self.run_id and hasattr(pipeline, "run_id"):
                 pipeline.run_id = self.run_id
+            if self.mode == "flink":
+                pipeline.savepoint_path = self.savepoint_path
             self.pipeline = pipeline
             self.run_id = getattr(pipeline, "run_id", None) or self.run_id or uuid4().hex
             async with self.lock:

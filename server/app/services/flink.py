@@ -57,8 +57,23 @@ class FlinkJobManager:
         }
         return [part for key, value in arguments.items() for part in (f"--{key}", str(value))]
 
+    @staticmethod
+    def _job_name(session_id: str, run_id: str) -> str:
+        return f"MarketLens event-time daily windows {session_id}/{run_id}"
+
     def _cancel_sync(self, job_id: str) -> None:
         self._request_sync(f"/jobs/{job_id}", {"action": "cancel"}, method="PATCH")
+
+    def _stop_stale_sync(self, session_id: str, run_id: str) -> list[dict[str, Any]]:
+        name = self._job_name(session_id, run_id)
+        matches = self._request_sync("/jobs/overview").get("jobs", [])
+        stopped = []
+        for job in sorted(matches, key=lambda item: item.get("start-time", 0)):
+            if job.get("name") != name or job.get("state") in {"CANCELED", "FAILED", "FINISHED"}:
+                continue
+            job_id = job["jid"]
+            stopped.append({"job_id": job_id, "savepoint_path": self._stop_sync(job_id)})
+        return stopped
 
     def _start_sync(self, session_id: str, run_id: str, kafka: dict[str, Any], savepoint_path: str | None = None) -> str:
         jar_id = self._jar_id_sync()
@@ -110,6 +125,9 @@ class FlinkJobManager:
     async def stop(self, job_id: str) -> str | None:
         return await asyncio.to_thread(self._stop_sync, job_id)
 
+    async def stop_stale(self, session_id: str, run_id: str) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._stop_stale_sync, session_id, run_id)
+
     async def ensure_running(self, job_id: str) -> None:
         details = await asyncio.to_thread(self._request_sync, f"/jobs/{job_id}")
         state = details.get("state")
@@ -123,11 +141,19 @@ class FlinkReplayPipeline(KafkaReplayPipeline):
         self.jobs = FlinkJobManager(flink_settings)
         self.flink_job_id: str | None = None
         self.savepoint_path: str | None = None
-        self.timing.update({"job_start_ms": 0.0, "job_stop_ms": 0.0})
+        self.stats["stale_jobs_stopped"] = 0
+        self.timing.update({"stale_job_stop_ms": 0.0, "job_start_ms": 0.0, "job_stop_ms": 0.0})
 
     async def start(self) -> None:
+        cleanup_started = monotonic()
+        stopped = await self.jobs.stop_stale(self.session_id, self.run_id)
+        self.stats["stale_jobs_stopped"] = len(stopped)
+        self.timing["stale_job_stop_ms"] = (monotonic() - cleanup_started) * 1000
+        for item in stopped:
+            if item["savepoint_path"]:
+                self.savepoint_path = item["savepoint_path"]
         started = monotonic()
-        self.flink_job_id = await self.jobs.start(self.session_id, self.run_id, self.settings)
+        self.flink_job_id = await self.jobs.start(self.session_id, self.run_id, self.settings, self.savepoint_path)
         self.timing["job_start_ms"] = (monotonic() - started) * 1000
         try:
             await super().start()
