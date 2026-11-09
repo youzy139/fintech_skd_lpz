@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from threading import Lock
 from uuid import uuid4
 
+from redis.exceptions import ConnectionError, RedisError
+
+from app.core.resilience import CircuitBreaker
+
 
 LEASE_SCRIPT = """
 local t = redis.call('TIME')
@@ -40,18 +44,27 @@ class Lease:
 
 
 class ConnectionLeases:
-    def __init__(self, client=None, namespace="marketlens:connections:v1", per_user=3, total=100, ttl=30.0):
+    def __init__(self, client=None, namespace="marketlens:connections:v1", per_user=3, total=100, ttl=30.0, breaker: CircuitBreaker | None = None):
         if per_user < 1 or total < 1 or ttl < 0.3:
             raise ValueError("连接并发额度必须为正，租约期限至少 0.3 秒")
         self.client, self.namespace = client, namespace
         self.per_user, self.total, self.ttl = per_user, total, ttl
+        self.breaker = breaker or CircuitBreaker()
         self.lock = Lock()
         self.local: dict[str, tuple[str, float]] = {}
 
     def _change(self, lease: Lease, action: str) -> bool:
         if self.client is not None:
+            if not self.breaker.before_call():
+                raise ConnectionError("Redis circuit breaker is open")
             keys = [self.namespace + ":all", self.namespace + ":user:" + lease.identity]
-            return bool(self.client.eval(LEASE_SCRIPT, 2, *keys, lease.token, action, int(self.ttl * 1000), self.total, self.per_user))
+            try:
+                changed = bool(self.client.eval(LEASE_SCRIPT, 2, *keys, lease.token, action, int(self.ttl * 1000), self.total, self.per_user))
+                self.breaker.after_call(True)
+                return changed
+            except RedisError:
+                self.breaker.after_call(False)
+                raise
         with self.lock:
             now = time.monotonic()
             self.local = {token: item for token, item in self.local.items() if item[1] > now}

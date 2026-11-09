@@ -11,6 +11,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.core.auth import AuthStore
 from app.core.governance import GovernanceMiddleware, SharedLimiter, category_for
+from app.core.leases import ConnectionLeases
+from app.core.resilience import CircuitBreaker
 from test_auth import bootstrap, secured, create_user, bearer, ORIGIN
 
 
@@ -27,7 +29,11 @@ class Counter:
 
 
 class BrokenRedis:
+    def __init__(self):
+        self.calls = 0
+
     def eval(self, *args):
+        self.calls += 1
         raise ConnectionError('offline')
 
 
@@ -51,6 +57,29 @@ def test_redis_outage_read_budget_and_write_closed():
     for category in ('control', 'admin', 'login', 'ws', 'message'):
         with pytest.raises(ConnectionError):
             limiter.check('user', category)
+
+
+def test_open_circuit_short_circuits_limiter_and_leases_then_recovers():
+    now = [0.0]
+    broken = BrokenRedis()
+    breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=5, clock=lambda: now[0])
+    limiter = SharedLimiter(broken, breaker=breaker)
+    leases = ConnectionLeases(broken, breaker=breaker)
+    limiter.check('reader', 'read')
+    limiter.check('reader', 'read')
+    assert breaker.snapshot()['state'] == 'open'
+    calls = broken.calls
+    for _ in range(5):
+        assert limiter.check('reader', 'read').mode == 'local-degraded'
+        with pytest.raises(ConnectionError):
+            limiter.check('writer', 'control')
+        with pytest.raises(ConnectionError):
+            leases.acquire('writer')
+    assert broken.calls == calls
+    now[0] = 6
+    limiter.client = Counter()
+    assert limiter.check('reader', 'read').mode == 'redis'
+    assert breaker.snapshot()['state'] == 'closed'
 
 
 def test_http_quota_headers_and_health_exemption():

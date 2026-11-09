@@ -259,7 +259,7 @@ def authorize(principal: Principal, path: str, method: str):
         if not principal.service or principal.username != "alert" or path != "/api/internal/alert-states":
             raise HTTPException(403, "此接口仅供指定内部服务使用")
         return
-    if path.startswith(("/api/auth/users", "/api/auth/audit")) or path == "/api/system/metrics":
+    if path.startswith(("/api/auth/users", "/api/auth/audit", "/api/system/")):
         if principal.role != "admin" and not principal.service:
             raise HTTPException(403, "此操作需要管理员权限")
         if path.startswith("/api/auth/") and principal.service:

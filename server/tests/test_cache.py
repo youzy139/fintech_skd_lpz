@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from redis.exceptions import RedisError
 
+from app.core.resilience import CircuitBreaker
 from app.services.cache import CachedCatalogStore, RedisJsonCache
 from app.services.catalog import CatalogStore
 from market_core.domain.sources import SourceFile
@@ -16,13 +17,16 @@ class FakeRedis:
         self.values = {}
         self.available = True
         self.closed = False
+        self.calls = 0
 
     def get(self, key):
+        self.calls += 1
         if not self.available:
             raise RedisError("offline")
         return self.values.get(key)
 
     def set(self, key, value, ex):
+        self.calls += 1
         if not self.available:
             raise RedisError("offline")
         self.values[key] = value
@@ -92,5 +96,28 @@ def test_large_offsets_bypass_cache_and_ttl_is_validated(tmp_path: Path):
         assert client.values == {}
         with pytest.raises(ValueError, match="TTL"):
             RedisJsonCache(client, "test", 0)
+    finally:
+        cached.close()
+
+
+def test_circuit_prevents_repeated_dns_and_recovers_after_cooldown(tmp_path):
+    store, client, cached = populated_store(tmp_path)
+    now = [0.0]
+    cached.cache.breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=5, clock=lambda: now[0])
+    try:
+        expected = store.summary()
+        client.available = False
+        assert cached.summary() == expected
+        assert cached.cache_stats["circuit"]["state"] == "open"
+        calls = client.calls
+        assert cached.summary() == expected
+        assert cached.summary() == expected
+        assert client.calls == calls
+        assert cached.cache_stats["circuit"]["short_circuits"] >= 2
+        now[0] = 6
+        client.available = True
+        assert cached.summary() == expected
+        assert cached.cache_stats["circuit"]["state"] == "closed"
+        assert client.calls == calls + 2
     finally:
         cached.close()

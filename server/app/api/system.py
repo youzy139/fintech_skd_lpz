@@ -4,6 +4,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import current_service
+from app.core.config import load_config
+from app.services.dependencies import DependencyMonitor
 
 router = APIRouter(tags=["system"])
 
@@ -40,3 +42,13 @@ def ready(request: Request):
 @router.get("/api/system/metrics")
 async def metrics(request: Request):
     return {**request.app.state.metrics.snapshot(), **current_service(request).replay_metrics()}
+
+
+@router.get("/api/system/dependencies")
+async def dependencies(request: Request):
+    report = await DependencyMonitor(load_config()).snapshot()
+    report["governance"] = request.app.state.governance.status()
+    cache_stats = getattr(getattr(current_service(request), "catalog", None), "cache_stats", None)
+    if cache_stats is not None:
+        report["catalog_cache"] = cache_stats
+    return report

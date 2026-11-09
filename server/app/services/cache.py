@@ -9,17 +9,19 @@ from redis.exceptions import RedisError
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 
+from app.core.resilience import CircuitBreaker
 from app.services.contracts import CatalogStorage
 from market_core.domain.sources import SourceFile
 
 
 class RedisJsonCache:
-    def __init__(self, client: Any, namespace: str, ttl_seconds: int):
+    def __init__(self, client: Any, namespace: str, ttl_seconds: int, breaker: CircuitBreaker | None = None):
         if ttl_seconds < 1:
             raise ValueError("缓存 TTL 必须大于 0 秒")
         self.client = client
         self.namespace = namespace
         self.ttl_seconds = ttl_seconds
+        self.breaker = breaker or CircuitBreaker()
         self.stats = {"hits": 0, "misses": 0, "writes": 0, "errors": 0}
 
     @classmethod
@@ -37,22 +39,41 @@ class RedisJsonCache:
         return cls(client, settings["namespace"], int(settings["ttl_seconds"]))
 
     def get(self, key: str) -> Any | None:
+        if not self.breaker.before_call():
+            self.stats["errors"] += 1
+            return None
         try:
             value = self.client.get(key)
+        except RedisError:
+            self.breaker.after_call(False)
+            self.stats["errors"] += 1
+            return None
+        self.breaker.after_call(True)
+        try:
             if value is None:
                 self.stats["misses"] += 1
                 return None
             self.stats["hits"] += 1
             return json.loads(value)
-        except (RedisError, TypeError, ValueError):
+        except (TypeError, ValueError):
             self.stats["errors"] += 1
             return None
 
     def set(self, key: str, value: Any) -> None:
         try:
-            self.client.set(key, json.dumps(value, ensure_ascii=False, default=str), ex=self.ttl_seconds)
+            serialized = json.dumps(value, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            self.stats["errors"] += 1
+            return
+        if not self.breaker.before_call():
+            self.stats["errors"] += 1
+            return
+        try:
+            self.client.set(key, serialized, ex=self.ttl_seconds)
+            self.breaker.after_call(True)
             self.stats["writes"] += 1
-        except (RedisError, TypeError, ValueError):
+        except RedisError:
+            self.breaker.after_call(False)
             self.stats["errors"] += 1
 
     def close(self) -> None:
@@ -66,7 +87,7 @@ class CachedCatalogStore:
 
     @property
     def cache_stats(self) -> dict[str, Any]:
-        return {**self.cache.stats, "namespace": self.cache.namespace, "ttl_seconds": self.cache.ttl_seconds}
+        return {**self.cache.stats, "namespace": self.cache.namespace, "ttl_seconds": self.cache.ttl_seconds, "circuit": self.cache.breaker.snapshot()}
 
     def data_version(self) -> str:
         return self.delegate.data_version()

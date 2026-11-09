@@ -13,13 +13,14 @@ from threading import Lock
 
 import redis
 from anyio import CancelScope
-from redis.exceptions import RedisError
+from redis.exceptions import ConnectionError, RedisError
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 from starlette.responses import JSONResponse
 
 from app.core.observability import current_request_id
 from app.core.leases import ConnectionLeases
+from app.core.resilience import CircuitBreaker
 
 
 QUOTAS = {"read": 240, "query": 60, "control": 20, "admin": 30, "login": 8, "ws": 20, "message": 120}
@@ -45,26 +46,38 @@ class Decision:
 
 
 class SharedLimiter:
-    def __init__(self, client=None, namespace="marketlens:limits:v1", limits=None):
+    def __init__(self, client=None, namespace="marketlens:limits:v1", limits=None, breaker: CircuitBreaker | None = None):
         self.client = client
         self.namespace = namespace
         self.limits = {**QUOTAS, **(limits or {})}
+        self.breaker = breaker or CircuitBreaker()
         self.local = OrderedDict()
         self.lock = Lock()
+
+    def status(self) -> dict:
+        return {"mode": "redis" if self.client is not None else "local", "circuit": self.breaker.snapshot()}
 
     def check(self, identity: str, category: str) -> Decision:
         key = self.namespace + ":" + hashlib.sha256((identity + ":" + category).encode()).hexdigest()
         limit = self.limits[category]
         mode = "local"
         if self.client is not None:
-            try:
-                count, ttl = self.client.eval(COUNT_SCRIPT, 1, key)
-                return Decision(count <= limit, limit, max(0, limit - count), max(1, math.ceil(ttl / 1000)), "redis")
-            except RedisError:
+            if not self.breaker.before_call():
                 if category not in {"read", "query"}:
-                    raise
+                    raise ConnectionError("Redis circuit breaker is open")
                 limit = min(limit, 30)
                 mode = "local-degraded"
+            else:
+                try:
+                    count, ttl = self.client.eval(COUNT_SCRIPT, 1, key)
+                    self.breaker.after_call(True)
+                    return Decision(count <= limit, limit, max(0, limit - count), max(1, math.ceil(ttl / 1000)), "redis")
+                except RedisError:
+                    self.breaker.after_call(False)
+                    if category not in {"read", "query"}:
+                        raise
+                    limit = min(limit, 30)
+                    mode = "local-degraded"
         now = time.monotonic()
         with self.lock:
             count, until = self.local.pop(key, (0, now + 60))
@@ -240,11 +253,12 @@ def install_governance(app, config, service_name):
     if mode == "redis":
         settings = config.redis
         client = redis.Redis(host=settings["host"], port=int(settings["port"]), db=int(settings["db"]), password=settings["password"] or None, socket_connect_timeout=0.3, socket_timeout=0.3, retry=Retry(NoBackoff(), 0))
-    limiter = SharedLimiter(client)
+    breaker = CircuitBreaker(int(os.getenv("REDIS_CIRCUIT_FAILURES", "3")), float(os.getenv("REDIS_CIRCUIT_RECOVERY_SECONDS", "30")))
+    limiter = SharedLimiter(client, breaker=breaker)
     app.state.governance = limiter
     app.state.governance_service_name = service_name
-    leases = ConnectionLeases(client, namespace="marketlens:connections:v1:{" + service_name + "}", per_user=int(os.getenv("WS_MAX_CONNECTIONS_PER_USER", "3")), total=int(os.getenv("WS_MAX_CONNECTIONS_TOTAL", "100")))
+    leases = ConnectionLeases(client, namespace="marketlens:connections:v1:{" + service_name + "}", per_user=int(os.getenv("WS_MAX_CONNECTIONS_PER_USER", "3")), total=int(os.getenv("WS_MAX_CONNECTIONS_TOTAL", "100")), breaker=breaker)
     app.state.connection_leases = leases
-    app.state.replay_leases = ConnectionLeases(client, namespace="marketlens:replay:v1:{compute}", per_user=1, total=int(os.getenv("REPLAY_MAX_RUNNING", "2")))
+    app.state.replay_leases = ConnectionLeases(client, namespace="marketlens:replay:v1:{compute}", per_user=1, total=int(os.getenv("REPLAY_MAX_RUNNING", "2")), breaker=breaker)
     app.add_middleware(GovernanceMiddleware, limiter=limiter, service_name=service_name, leases=leases)
     return limiter

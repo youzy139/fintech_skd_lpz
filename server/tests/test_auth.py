@@ -90,6 +90,7 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     assert client.post("/api/replay/sessions", json={"start_date": "2024-01-01", "end_date": "2024-01-02"}, headers=observer).status_code == 403
     assert client.get("/api/auth/users", headers=observer).status_code == 403
     assert client.get("/api/system/metrics", headers=observer).status_code == 403
+    assert client.get("/api/system/dependencies", headers=observer).status_code == 403
     market = bearer(create_user(store, "market-user", domains=("market",)))
     assert client.get("/api/data/records", headers=market).status_code == 403
     assert client.get("/api/home/summary", headers=market).status_code == 403
