@@ -140,6 +140,12 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
             async def alert_proxy(request: Request):
                 return await forward_alert_request(request, config.alert_service["url"], float(config.alert_service["timeout_seconds"]))
 
+            @app.api_route("/api/alerts/{path:path}", methods=["GET"], include_in_schema=False)
+            @app.api_route("/api/alert-rules", methods=["GET", "PUT"], include_in_schema=False)
+            @app.api_route("/api/alert-rules/{path:path}", methods=["GET", "POST"], include_in_schema=False)
+            async def alert_management_proxy(request: Request):
+                return await forward_alert_request(request, config.alert_service["url"], float(config.alert_service["timeout_seconds"]))
+
         @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
         async def feature_proxy(request: Request):
             return await forward_feature_request(request, config.feature_service["url"], float(config.feature_service["timeout_seconds"]))

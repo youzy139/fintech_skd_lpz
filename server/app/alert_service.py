@@ -4,15 +4,25 @@ import asyncio
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-
+from app.api.contracts import RuleRequest
 from app.core.config import load_config
-from app.core.auth import install_auth
+from app.core.auth import auth_enabled, auth_store, install_auth
 from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, error_response, install_error_handlers
 from app.services.alert import AlertService
 from app.services.remote_feature import FeatureServiceError
+
+
+def rule_actor(request: Request) -> str:
+    principal = getattr(request.state, "principal", None)
+    return principal.username if principal else "local-dev"
+
+
+def audit_rule(request: Request, action: str, version: str) -> None:
+    if auth_enabled():
+        auth_store().record_event(rule_actor(request), action, version, 200)
 
 
 def create_alert_app(service: AlertService | None = None, initialize: bool = True) -> FastAPI:
@@ -44,6 +54,35 @@ def create_alert_app(service: AlertService | None = None, initialize: bool = Tru
     @app.get("/api/alerts", tags=["alerts"])
     def alerts(request: Request, limit: int = Query(100, ge=1, le=1000)):
         return request.app.state.service.list_alerts(limit)
+
+    @app.get("/api/alerts/{rule}/{event_date}", tags=["alerts"])
+    def evidence(rule: str, event_date: str, request: Request):
+        try:
+            return request.app.state.service.alert_evidence(rule, event_date)
+        except KeyError:
+            raise HTTPException(404, "未找到该预警或对应证据") from None
+
+    @app.get("/api/alert-rules", tags=["alerts"])
+    def rules(request: Request):
+        return request.app.state.service.alert_rules()
+
+    @app.put("/api/alert-rules", tags=["alerts"])
+    def update_rules(payload: RuleRequest, request: Request):
+        try:
+            result = request.app.state.service.update_alert_rules(payload.model_dump(), rule_actor(request))
+            audit_rule(request, "rule_update", result["version"])
+            return result
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/alert-rules/{version}/activate", tags=["alerts"])
+    def activate_rule(version: str, request: Request):
+        try:
+            result = request.app.state.service.activate_alert_rule(version, rule_actor(request))
+            audit_rule(request, "rule_activate", result["version"])
+            return result
+        except KeyError:
+            raise HTTPException(404, "规则版本不存在") from None
 
     @app.get("/api/health", tags=["system"])
     def health(request: Request):

@@ -3,6 +3,7 @@ import Chart from './Chart'
 import Landing from './Landing'
 import SourceCatalog from './SourceCatalog'
 import ReplayCenter from './ReplayCenter'
+import AlertCenter from './AlertCenter'
 import { api } from './api'
 import { useAuth } from './Auth'
 import type { Alert, Asset, AssetSeries, HomeSummary, Regime } from './types'
@@ -54,7 +55,6 @@ function App() {
   const [error, setError] = useState('')
   const [selectedAsset, setSelectedAsset] = useState('SPX.GI')
   const [series, setSeries] = useState<AssetSeries | null>(null)
-  const [alertFilter, setAlertFilter] = useState('all')
 
   const loadMarket = useCallback(async () => {
     setError('')
@@ -104,7 +104,6 @@ function App() {
   if (!data) return <main className="boot"><h1>暂时无法连接</h1><p>{error}</p><button onClick={() => void loadMarket()}>重新连接</button></main>
 
   const { latest, states, alerts, assets } = data
-  const filteredAlerts = alertFilter === 'all' ? alerts : alerts.filter(item => item.level === alertFilter)
 
   return <Workspace page={page} onNavigate={navigate} latestDate={latest.date} alertCount={alerts.length}>
     {error && <div className="error">{error}</div>}
@@ -134,7 +133,7 @@ function App() {
       <div className="grid equal"><Panel title="特征偏离程度" subtitle="绝对标准化值越大，当前状态越异常"><div className="feature-list">{latest.contributions.map(item => <div className="feature-row" key={item.feature}><div><span>{featureNames[item.feature]}</span><strong>{item.standardized.toFixed(3)}σ</strong></div><div className="track"><i className={item.standardized < 0 ? 'below' : ''} style={{ width: `${Math.min(100, Math.abs(item.standardized) * 40)}%` }} /></div><small>原始值 {item.value.toFixed(4)}</small></div>)}</div></Panel><Panel title="如何理解这些特征？"><div className="glossary"><p><b>市场收益</b>多资产当日对数收益的横截面均值。</p><p><b>年化波动率</b>市场收益在 20 日窗口内的标准差年化。</p><p><b>中期动量</b>各价格资产过去 60 日涨跌幅的均值。</p><p><b>资产相关性</b>60 日窗口内资产收益的成对相关性均值。</p></div></Panel></div>
     </>}
 
-    {page === 'alerts' && <Panel title="预警记录" subtitle="高波动、相关性异常与状态切换" action={<select value={alertFilter} onChange={event => setAlertFilter(event.target.value)}><option value="all">全部级别</option><option value="high">高级别</option><option value="medium">中级别</option></select>}><AlertList alerts={filteredAlerts} /></Panel>}
+    {page === 'alerts' && <AlertCenter alerts={alerts} onChanged={() => void loadMarket()} />}
   </Workspace>
 }
 

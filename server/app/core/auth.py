@@ -269,6 +269,11 @@ def authorize(principal: Principal, path: str, method: str):
         if principal.service:
             raise HTTPException(403, "需要用户身份")
         return
+    if path.startswith("/api/alert-rules"):
+        require_domain(principal, "market")
+        if method not in {"GET", "HEAD"} and principal.role != "admin":
+            raise HTTPException(403, "只有管理员可以修改预警规则")
+        return
     if path.startswith("/api/data/"):
         require_domain(principal, "catalog")
     elif path.startswith("/api/replay/") or path.startswith("/ws/") or path in {"/api/kafka/status", "/api/flink/status", "/api/home/summary"}:

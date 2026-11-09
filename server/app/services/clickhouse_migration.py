@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime
 from typing import Any
 
 from app.services.catalog import CatalogStore
+from market_core.models.alerts import alert_rule_version
 from app.services.clickhouse_store import ClickHouseCatalogStore
 from app.services.migration_baseline import BASELINE_VERSION, catalog_queries, compare_baselines
 
@@ -18,7 +18,7 @@ class ClickHouseMigrator:
     def __init__(self, store: ClickHouseCatalogStore, rule_settings: dict[str, Any], transformation_version: str = "sqlite-stage-c-v1"):
         self.store = store
         self.transformation_version = transformation_version
-        self.rule_version = "rules-" + hashlib.sha256(json.dumps(rule_settings, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        self.rule_version = alert_rule_version(rule_settings)
 
     def migrate(self, catalog: CatalogStore, reset: bool = True, generation: int = 1) -> dict[str, int]:
         self.store.initialize()

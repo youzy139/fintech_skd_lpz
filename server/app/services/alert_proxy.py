@@ -16,9 +16,12 @@ async def forward_alert_request(request: Request, base_url: str, timeout_seconds
     query = f"?{request.url.query}" if request.url.query else ""
     headers = {"X-Request-ID": current_request_id(), "Accept": "application/json"}
     headers.update(outgoing_auth_headers())
+    body = await request.body()
+    if body:
+        headers["Content-Type"] = request.headers.get("content-type", "application/json")
 
     def send() -> tuple[int, bytes, dict[str, str]]:
-        upstream = HttpRequest(base_url.rstrip("/") + request.url.path + query, headers=headers, method=request.method)
+        upstream = HttpRequest(base_url.rstrip("/") + request.url.path + query, data=body or None, headers=headers, method=request.method)
         try:
             with urlopen(upstream, timeout=timeout_seconds) as response:
                 return response.status, response.read(), response_headers(response.headers)

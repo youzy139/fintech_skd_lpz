@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import math
 from dataclasses import asdict
 from typing import Any
 
 from app.core.config import AppConfig
+from app.core.serialization import json_compatible
+from app.services.alert_rules import AlertRuleManager
 from app.services.catalog_factory import create_catalog_reader
 from app.services.storage import SnapshotStore
 from market_core.domain.market import AssetSeries
 from market_core.ingestion.assets import AssetRepository
-from market_core.models.alerts import generate_alerts
+from market_core.models.alerts import alert_evidence, generate_alerts
 from market_core.models.features import build_market_features
 from market_core.models.regime import WalkForwardRegimeModel
 
@@ -25,6 +26,7 @@ class MarketService:
         self.store = SnapshotStore(config.database_path)
         self.storage_mode = config.storage_mode
         self.catalog = create_catalog_reader(config)
+        self.rule_manager = AlertRuleManager(config.database_path.with_name("alert_rules.sqlite3"), config.alerts)
 
     def initialize(self) -> None:
         self.series, quality = self.repository.load_all()
@@ -34,11 +36,33 @@ class MarketService:
         features = build_market_features(self.series, settings["volatility_window"], settings["momentum_window"], settings["analysis_start"])
         model = WalkForwardRegimeModel(settings["minimum_history"], settings["training_window"], settings["refit_interval"], settings["cluster_count"], settings["random_seed"])
         self.states = model.predict(features)
-        self.alerts = [asdict(item) for item in generate_alerts(self.states, self.config.alerts["volatility_quantile"], self.config.alerts["correlation_quantile"])]
+        self.rebuild_alerts()
         self.quality = {**asdict(quality), "sources": self.catalog.summary()}
         self.store.save("quality", self.quality)
         self.store.save("states", self.states)
+
+    def rebuild_alerts(self) -> None:
+        current = self.rule_manager.current()
+        settings = current["settings"]
+        self.alerts = [asdict(item) for item in generate_alerts(self.states, **settings, rule_version=current["version"])]
+        self.alert_rule_version = current["version"]
         self.store.save("alerts", self.alerts)
+
+    def alert_rules(self) -> dict[str, Any]:
+        return self.rule_manager.describe()
+
+    def update_alert_rules(self, settings: dict[str, Any], actor: str) -> dict[str, Any]:
+        result = self.rule_manager.save(settings, actor)
+        self.rebuild_alerts()
+        return result
+
+    def activate_alert_rule(self, version: str, actor: str) -> dict[str, Any]:
+        result = self.rule_manager.activate(version, actor)
+        self.rebuild_alerts()
+        return result
+
+    def alert_evidence(self, rule: str, event_date: str) -> dict[str, Any]:
+        return alert_evidence(self.states, self.alerts, rule, event_date, self.rule_manager.current()["settings"])
 
     def assets(self) -> list[dict]:
         return [{"category": item.meta.category, "name": item.meta.name, "code": item.meta.code, "field": item.meta.field, "calendar": item.meta.calendar, "start": item.frame["date"].min().strftime("%Y-%m-%d"), "end": item.frame["date"].max().strftime("%Y-%m-%d"), "rows": len(item.frame)} for item in self.series]
@@ -56,16 +80,11 @@ class MarketService:
         return self.states[-1]
 
     def alert_states(self) -> list[dict[str, Any]]:
-        inputs = []
-        for state in self.states:
-            features = {}
-            for name in ("volatility", "correlation"):
-                value = float(state["features"][name])
-                features[name] = value if math.isfinite(value) else None
-            inputs.append({"date": state["date"], "label": state["label"], "features": features})
-        return inputs
+        return json_compatible(self.states)
 
     def home_summary(self) -> dict[str, Any]:
+        if getattr(self, "alert_rule_version", None) != self.rule_manager.current()["version"]:
+            self.rebuild_alerts()
         return {
             "latest": self.latest_state(),
             "alert_count": len(self.alerts),

@@ -121,7 +121,7 @@ MarketLens 要解决的不是“让 AI 猜明天涨还是跌”，而是：
 
 这些效果证明的是**数据处理、模型链路和工程可靠性**，不代表已经获得投资收益、预测准确率优势或生产级高可用能力。
 
-2026-11-02 入口评估与账号权限已通过用户验收：本阶段保留 Nginx + FastAPI，见 [评估报告](docs/v0.3.4-gateway-evaluation.md) 与 [选型 ADR](docs/adr-001-api-entrance.md)。用户已创建正式管理员，原身份库保持不变。Redis 共享配额、管理员审计页、订阅连接上限、回放计算并发与 Kafka/Flink 异常治理均已通过用户验收；配置与故障边界见 [治理说明](docs/v0.3.4-governance.md)、[连接治理](docs/v0.3.4-connections.md)、[计算并发](docs/v0.3.4-replay-capacity.md) 和 [异常治理](docs/v0.3.4-replay-faults.md)。Compose 默认开启认证，其他首次部署按 [认证说明](docs/v0.3.4-authentication.md) 设置账号。当前依赖监控与 Redis 熔断批次为后端 143 项、前端 22 项，分支覆盖率 76.62%，真实 DNS 故障演练通过，等待用户体验确认。审计归档和 Caffeine/Redis 缓存分工仍待落实。
+2026-11-02 入口评估与账号权限已通过用户验收：本阶段保留 Nginx + FastAPI，见 [评估报告](docs/v0.3.4-gateway-evaluation.md) 与 [选型 ADR](docs/adr-001-api-entrance.md)。用户已创建正式管理员，原身份库保持不变。Redis 共享配额、管理员审计页、订阅连接上限、回放计算并发、Kafka/Flink 异常治理、依赖监控与 Redis 熔断均已通过用户验收；配置与故障边界见各专项文档。Compose 默认开启认证，其他首次部署按 [认证说明](docs/v0.3.4-authentication.md) 设置账号。预警规则与证据批次为后端 150 项、前端 23 项，分支覆盖率 77.22%；真实规则、证据、首页一致性、重启、回滚及用户页面体验验收均通过。本批已本地提交，尚未推送。审计归档和 Caffeine/Redis 缓存分工仍待落实。
 
 ### 尚未达成
 
@@ -304,6 +304,7 @@ cd web && npm test && npm run build
 - [v0.3.4 回放持久化与恢复](docs/v0.3.4-replay-persistence.md)：SQLite 会话结果、重启恢复、断线补拉、幂等控制及真实验收。
 - [v0.3.4 Kafka/Flink 异常治理](docs/v0.3.4-replay-faults.md)：broker 重启、租约丢失、进程崩溃、遗留作业精确清理与 Savepoint 接管。
 - [v0.3.4 依赖监控与 Redis 熔断](docs/v0.3.4-dependencies.md)：六类依赖探针、管理员监控页、读取降级与写操作失败关闭。
+- [v0.3.4 预警规则与证据链](docs/v0.3.4-alert-rules.md)：确定性阈值、规则版本、历史版本恢复、审计和当日状态证据。
 - [AGENTS.md](AGENTS.md)：数据口径、竞赛约束和开发注意事项。
 - 根目录的赛题 PDF 与发布 PPT：正式竞赛要求及评分依据。
 

@@ -81,7 +81,7 @@ def test_alert_service_rebuilds_history_with_shared_rules():
     assert feature.paths == ["/api/internal/alert-states"]
     assert service.list_alerts(100) == list(reversed(expected))
     assert service.list_alerts(2) == list(reversed(expected[-2:]))
-    assert service.readiness() == {"status": "ok", "states": 61, "alerts": 3, "latest_state_date": "2024-03-01"}
+    assert service.readiness() == {"status": "ok", "states": 61, "alerts": 3, "latest_state_date": "2024-03-01", "rule_version": service.rule_manager.current()["version"]}
     service.close()
     assert feature.closed
 
@@ -91,11 +91,13 @@ def test_alert_input_transport_preserves_missing_values():
 
     states = sample_states()
     states[0]["features"]["correlation"] = float("nan")
+    states[0]["model_version"] = "model-test"
     service = MarketService.__new__(MarketService)
     service.states = states
     transported = service.alert_states()
 
     assert transported[0]["features"]["correlation"] is None
+    assert transported[0]["model_version"] == "model-test"
     assert [asdict(item) for item in generate_alerts(transported, 0.9, 0.9)] == [asdict(item) for item in generate_alerts(states, 0.9, 0.9)]
 
 
@@ -176,6 +178,23 @@ def test_main_proxies_only_alerts_to_alert_service(monkeypatch):
     assert request.full_url == "http://alert-service:8000/api/alerts?limit=1"
     assert request.headers["X-request-id"] == "trace.alert-1"
     assert timeout == 5.0
+
+
+def test_main_routes_rule_management_and_evidence_to_alert_service(monkeypatch):
+    calls = []
+
+    def open_response(request, timeout):
+        calls.append(request)
+        return FakeResponse({"version": "rules-test"})
+
+    with remote_main_client(monkeypatch, open_response, lambda: {"status": "ok"}) as http:
+        response = http.put("/api/alert-rules", json={"volatility_quantile": 0.95})
+        assert response.status_code == 200
+        assert http.get("/api/alerts/HIGH_VOLATILITY/2024-03-01").json()["version"] == "rules-test"
+    assert calls[0].full_url == "http://alert-service:8000/api/alert-rules"
+    assert calls[0].method == "PUT"
+    assert json.loads(calls[0].data) == {"volatility_quantile": 0.95}
+    assert calls[1].full_url == "http://alert-service:8000/api/alerts/HIGH_VOLATILITY/2024-03-01"
 
 
 def test_main_preserves_alert_upstream_error(monkeypatch):

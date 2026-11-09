@@ -48,3 +48,4 @@ class Alert:
     evidence: str
     value: float | None = None
     threshold: float | None = None
+    rule_version: str | None = None
