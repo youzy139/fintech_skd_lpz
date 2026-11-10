@@ -7,6 +7,7 @@ from app.core.config import AppConfig
 from app.core.serialization import json_compatible
 from app.services.alert_rules import AlertRuleManager
 from app.services.catalog_factory import create_catalog_reader
+from app.services.context_evidence import attach_context
 from app.services.storage import SnapshotStore
 from market_core.domain.market import AssetSeries
 from market_core.ingestion.assets import AssetRepository
@@ -62,7 +63,8 @@ class MarketService:
         return result
 
     def alert_evidence(self, rule: str, event_date: str) -> dict[str, Any]:
-        return alert_evidence(self.states, self.alerts, rule, event_date, self.rule_manager.current()["settings"])
+        evidence = alert_evidence(self.states, self.alerts, rule, event_date, self.rule_manager.current()["settings"])
+        return attach_context(evidence, getattr(self, "catalog", None))
 
     def assets(self) -> list[dict]:
         return [{"category": item.meta.category, "name": item.meta.name, "code": item.meta.code, "field": item.meta.field, "calendar": item.meta.calendar, "start": item.frame["date"].min().strftime("%Y-%m-%d"), "end": item.frame["date"].max().strftime("%Y-%m-%d"), "rows": len(item.frame)} for item in self.series]

@@ -5,18 +5,22 @@ from typing import Any
 
 from app.core.config import AppConfig
 from app.services.alert_rules import AlertRuleManager
+from app.services.catalog_factory import create_catalog_reader
+from app.services.context_evidence import attach_context
+from app.services.contracts import CatalogReader
 from app.services.remote_feature import RemoteFeatureClient
 from market_core.models.alerts import alert_evidence as build_alert_evidence
 from market_core.models.alerts import generate_alerts
 
 
 class AlertService:
-    def __init__(self, config: AppConfig, feature: RemoteFeatureClient | None = None, rules: AlertRuleManager | None = None):
+    def __init__(self, config: AppConfig, feature: RemoteFeatureClient | None = None, rules: AlertRuleManager | None = None, catalog: CatalogReader | None = None):
         if not config.feature_service["url"] and feature is None:
             raise ValueError("独立预警服务需要 FEATURE_SERVICE_URL")
         self.config = config
         self.feature = feature or RemoteFeatureClient(config.feature_service["url"], config.feature_service["timeout_seconds"])
         self.rule_manager = rules or AlertRuleManager(config.database_path.with_name("alert_rules.sqlite3"), config.alerts)
+        self.catalog = catalog or (create_catalog_reader(config) if config.data_service["url"] else None)
         self.states: list[dict[str, Any]] = []
         self.alerts: list[dict[str, Any]] = []
         self.state_count = 0
@@ -54,7 +58,8 @@ class AlertService:
         return result
 
     def alert_evidence(self, rule: str, event_date: str) -> dict[str, Any]:
-        return build_alert_evidence(self.states, self.alerts, rule, event_date, self.rule_manager.current()["settings"])
+        evidence = build_alert_evidence(self.states, self.alerts, rule, event_date, self.rule_manager.current()["settings"])
+        return attach_context(evidence, self.catalog)
 
     def health_details(self) -> dict[str, Any]:
         return {"states": self.state_count, "alerts": len(self.alerts), "latest_state_date": self.latest_state_date, "rule_version": self.rule_manager.current()["version"]}
@@ -64,3 +69,7 @@ class AlertService:
 
     def close(self) -> None:
         self.feature.close()
+        if self.catalog is not None:
+            close = getattr(self.catalog, "close", None)
+            if close:
+                close()
