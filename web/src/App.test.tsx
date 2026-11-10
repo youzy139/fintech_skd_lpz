@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
-vi.mock('./Chart', () => ({ default: () => <div data-testid="chart" /> }))
+vi.mock('./Chart', () => ({ default: ({ option }: { option: unknown }) => <div data-testid="chart" data-option={JSON.stringify(option)} /> }))
 
 const latest = { date: '2026-04-30', label: '震荡平衡 · C1', confidence: 0.82, model_version: 'test', trained_through: '2026-04-29', features: { volatility: 0.2, momentum: 0.05, correlation: 0.3, sample_count: 30 }, contributions: [{ feature: 'volatility', value: 0.2, standardized: 1.2 }] }
 const socialRecord = { source_id: 'source', source_path: '科技.csv', kind: 'social', record_index: 0, event_date: '2024-01-02', title: '<b>原文</b>', payload: { created_at_twitter: '2024-01-02', text: '<b>原文</b>' }, tags: ['人工智能'] }
@@ -127,6 +127,25 @@ describe('App', () => {
     expect(screen.getByText('已选 5/5')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /政策与监管 1 条/ })).toBeDisabled()
     expect(screen.getByRole('status')).toHaveTextContent('已达到 5 个标签上限')
+  })
+
+  it('renders feature heatmap values and preserves missing data as null', async () => {
+    const original = responses['/api/regimes?limit=2000']
+    const early = { ...latest, date: '2015-01-05', features: { ...latest.features, trend: null } }
+    responses['/api/regimes?limit=2000'] = [early, latest]
+    try {
+      render(<App />)
+      await waitFor(() => expect(screen.getByText('震荡平衡 · C1')).toBeInTheDocument())
+      fireEvent.click(screen.getByRole('button', { name: /进入市场工作台/ }))
+      fireEvent.click(await screen.findByRole('button', { name: /状态分析/ }))
+      expect(await screen.findByText('状态特征热力图')).toBeInTheDocument()
+      expect(screen.getByText(/灰色为缺失值，不按 0 处理/)).toBeInTheDocument()
+      const charts = screen.getAllByTestId('chart')
+      const heat = JSON.parse(charts[1].getAttribute('data-option')!)
+      const missing = heat.series[0].data.find((point: unknown[]) => point[0] === '2015-01-05' && point[1] === 4)
+      expect(missing[2]).toBeNull()
+      expect(missing[3]).toBeNull()
+    } finally { responses['/api/regimes?limit=2000'] = original }
   })
 
   it('animates scrolling and finishes at exact scrollTop zero', () => {

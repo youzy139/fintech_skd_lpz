@@ -97,6 +97,25 @@ function App() {
     }
   }, [data])
 
+  const regimeHeatOption = useMemo(() => {
+    const states = data?.states.slice(-120) ?? []
+    const features = ['market_return', 'volatility', 'momentum', 'correlation', 'trend', 'sample_count']
+    const ranges = features.map(feature => {
+      const values = states.map(state => state.features[feature]).filter(value => typeof value === 'number' && Number.isFinite(value))
+      return { min: Math.min(...values), max: Math.max(...values), samples: values.length }
+    })
+    const rawText = (feature: string, value: number) => feature === 'sample_count' ? `${value} 个资产` : feature === 'correlation' ? value.toFixed(4) : percent(value, 3)
+    return {
+      grid: { left: 82, right: 24, top: 24, bottom: 92 },
+      tooltip: { formatter: (params: unknown) => { const point = params as { value: (string | number | null)[] }; const index = Number(point.value[1]); const raw = point.value[3]; return `${point.value[0]}<br/>${featureNames[features[index]]}<br/>${typeof raw === 'number' ? rawText(features[index], raw) : '缺失值 · 不参与归一化'}` } },
+      xAxis: { type: 'category' as const, data: states.map(item => item.date), axisLabel: { color: '#78909f' }, axisLine: { lineStyle: { color: '#304353' } } },
+      yAxis: { type: 'category' as const, data: features.map(feature => featureNames[feature]), axisLabel: { color: '#a9b9c4' } },
+      visualMap: { min: 0, max: 1, dimension: 2, calculable: false, orient: 'horizontal' as const, left: 'center', bottom: 12, text: ['区间内较高', '区间内较低'], textStyle: { color: '#78909f' }, inRange: { color: ['#102b35', '#176052', '#47d7ac', '#f3b65c'] }, outOfRange: { color: ['#24313a'] } },
+      series: [{ type: 'heatmap' as const, data: states.flatMap(state => features.map((feature, index) => { const raw = state.features[feature]; const valid = typeof raw === 'number' && Number.isFinite(raw); const { min, max } = ranges[index]; const normalized = valid ? (max === min ? 0.5 : (raw - min) / (max - min)) : null; return [state.date, index, normalized, valid ? raw : null] })), itemStyle: { borderColor: '#0e1b24', borderWidth: 2 } }],
+      ranges,
+    }
+  }, [data])
+
   if (page === 'home') return <Landing data={homeData} onEnter={() => navigate('overview')} />
   if (page === 'replay') return <Workspace page={page} onNavigate={navigate} latestDate={homeData?.latest.date} alertCount={homeData?.alert_count ?? 0}><ReplayCenter /></Workspace>
   if (page === 'data') return <Workspace page={page} onNavigate={navigate} latestDate={homeData?.latest.date} alertCount={homeData?.alert_count ?? 0}><SourceCatalog /></Workspace>
@@ -125,6 +144,7 @@ function App() {
     {page === 'regimes' && <>
       <div className="metrics three"><div className="metric"><span>历史状态观测</span><strong>{states.length}</strong><small>逐日 walk-forward 识别</small></div><div className="metric"><span>当前状态</span><strong>{latest.label}</strong><small>训练数据截至 {latest.trained_through}</small></div><div className="metric"><span>有效资产覆盖</span><strong>{latest.features.sample_count}</strong><small>当日实际参与计算</small></div></div>
       <Panel title="市场状态时间图谱" subtitle="最近 500 个状态日 · 颜色对应不同状态画像"><Chart option={regimeOption} className="tall" /></Panel>
+      <Panel title="状态特征热力图" subtitle="最近 120 个状态日 · 每列独立做最小—最大归一化"><Chart option={regimeHeatOption} className="tall" /><p className="method-note">颜色只比较同一特征在这 120 日内的相对高低，不能直接跨特征比较颜色。悬停查看原始值；灰色为缺失值，不按 0 处理。有效资产数表示当日实际参与计算的资产样本量。</p></Panel>
       <Panel title="最近状态记录" subtitle="每次识别仅使用当日及此前数据"><div className="table-wrap"><table><thead><tr><th>日期</th><th>状态</th><th>置信度</th><th>波动率</th><th>动量</th><th>模型版本</th></tr></thead><tbody>{states.slice(-10).reverse().map(item => <tr key={item.date}><td>{item.date}</td><td><span className="status-dot" />{item.label}</td><td>{percent(item.confidence, 1)}</td><td>{percent(item.features.volatility)}</td><td>{percent(item.features.momentum)}</td><td className="muted">{item.model_version}</td></tr>)}</tbody></table></div></Panel>
     </>}
 

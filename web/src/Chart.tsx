@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
-import { LineChart, ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { HeatmapChart, LineChart, ScatterChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, VisualMapComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 
-echarts.use([LineChart, ScatterChart, GridComponent, TooltipComponent, CanvasRenderer])
+echarts.use([LineChart, ScatterChart, HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
 
 export default function Chart({ option, className = '' }: { option: EChartsOption; className?: string }) {
   const element = useRef<HTMLDivElement>(null)

@@ -85,6 +85,25 @@ class ObjectArchive:
             "uploaded": uploaded,
         }
 
+    def put_bytes(self, key: str, payload: bytes, content_type: str = "application/x-ndjson") -> None:
+        import io
+
+        self._ensure_bucket()
+        result = self.client.put_object(self.bucket, key, io.BytesIO(payload), len(payload), content_type=content_type)
+        stat = self.client.stat_object(self.bucket, key)
+        if stat.size != len(payload):
+            raise ValueError("对象归档后的大小不一致")
+        if result is None:
+            raise ValueError("对象归档未返回结果")
+
+    def get_bytes(self, key: str) -> bytes:
+        response = self.client.get_object(self.bucket, key)
+        try:
+            return b"".join(response.stream(1024 * 1024))
+        finally:
+            response.close()
+            response.release_conn()
+
     def verify(self, source: SourceFile, metadata: dict[str, Any]) -> dict[str, Any]:
         local_sha256 = file_sha256(source.absolute_path)
         if metadata["sha256"] != local_sha256 or int(metadata["size"]) != source.size:

@@ -28,3 +28,14 @@ it('shows monitoring failures without inventing healthy dependencies', async () 
   expect(await screen.findByRole('alert')).toHaveTextContent('监控暂时不可用')
   expect(screen.queryByText('已启用依赖均正常', { exact: false })).not.toBeInTheDocument()
 })
+
+
+it('separates local and Redis cache responsibilities using data-service statistics', async () => {
+  const cachedReport = { ...report, catalog_cache: { hits: 7, misses: 3, errors: 1, circuit: report.governance.circuit, local: { enabled: true, hits: 12, misses: 4, entries: 8, max_entries: 128, evictions: 2, expirations: 1 }, shared: { enabled: true, hits: 7, misses: 3, errors: 1 } } }
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: async () => cachedReport })))
+  render(<SystemStatus />)
+  expect(await screen.findByText('目录缓存分工')).toBeInTheDocument()
+  expect(screen.getByText('进程内一级缓存')).toBeInTheDocument()
+  expect(screen.getByText('Redis 二级缓存')).toBeInTheDocument()
+  expect(screen.getByText('8/128 项 · 淘汰 2 · 过期 1')).toBeInTheDocument()
+})

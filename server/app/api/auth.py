@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from app.core.auth import COOKIE, DOMAINS, auth_enabled, auth_store
+from app.services.audit_archive import audit_archive
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -91,6 +92,43 @@ def users():
 @router.get("/audit")
 def audit_records(before: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100), actor: str | None = Query(None, max_length=40), action: str | None = Query(None, max_length=40)):
     return enabled_store().audit_records(before, limit, actor, action)
+
+
+@router.get("/audit/overview")
+def audit_overview():
+    enabled_store()
+    return audit_archive().overview()
+
+
+@router.post("/audit/archive")
+def archive_audit(request: Request):
+    enabled_store()
+    try:
+        result = audit_archive().archive_expired()
+    except RuntimeError as error:
+        raise HTTPException(409, str(error)) from error
+    auth_store().record_event(request.state.principal.username, "audit_archive", str(result["archived"]), 200)
+    return result
+
+
+@router.post("/audit/archives/{identifier}/verify")
+def verify_audit_archive(identifier: str):
+    enabled_store()
+    try:
+        return audit_archive().verify(identifier)
+    except KeyError:
+        raise HTTPException(404, "审计归档不存在") from None
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+
+
+@router.get("/audit/archives/{identifier}/records")
+def archived_audit_records(identifier: str):
+    enabled_store()
+    try:
+        return audit_archive().records(identifier)
+    except KeyError:
+        raise HTTPException(404, "审计归档不存在") from None
 
 
 @router.post("/users", status_code=201)

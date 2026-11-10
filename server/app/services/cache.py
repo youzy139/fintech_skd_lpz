@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
+import os
+import time
+from collections import OrderedDict
+from threading import Lock
 from typing import Any, Callable
 
 import redis
@@ -12,6 +17,47 @@ from redis.retry import Retry
 from app.core.resilience import CircuitBreaker
 from app.services.contracts import CatalogStorage
 from market_core.domain.sources import SourceFile
+
+
+class LocalJsonCache:
+    def __init__(self, max_entries: int = 128, ttl_seconds: int = 15, clock: Callable[[], float] = time.monotonic):
+        if max_entries < 1 or ttl_seconds < 1:
+            raise ValueError("本地缓存容量和 TTL 必须大于 0")
+        self.max_entries = max_entries
+        self.ttl_seconds = ttl_seconds
+        self.clock = clock
+        self.values: OrderedDict[str, tuple[float, Any]] = OrderedDict()
+        self.lock = Lock()
+        self.stats = {"hits": 0, "misses": 0, "writes": 0, "evictions": 0, "expirations": 0}
+
+    def get(self, key: str) -> tuple[bool, Any]:
+        now = self.clock()
+        with self.lock:
+            entry = self.values.pop(key, None)
+            if entry is None:
+                self.stats["misses"] += 1
+                return False, None
+            expires, value = entry
+            if expires <= now:
+                self.stats["misses"] += 1
+                self.stats["expirations"] += 1
+                return False, None
+            self.values[key] = entry
+            self.stats["hits"] += 1
+            return True, copy.deepcopy(value)
+
+    def set(self, key: str, value: Any) -> None:
+        with self.lock:
+            self.values.pop(key, None)
+            self.values[key] = (self.clock() + self.ttl_seconds, copy.deepcopy(value))
+            self.stats["writes"] += 1
+            while len(self.values) > self.max_entries:
+                self.values.popitem(last=False)
+                self.stats["evictions"] += 1
+
+    def snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            return {**self.stats, "entries": len(self.values), "max_entries": self.max_entries, "ttl_seconds": self.ttl_seconds}
 
 
 class RedisJsonCache:
@@ -81,13 +127,21 @@ class RedisJsonCache:
 
 
 class CachedCatalogStore:
-    def __init__(self, delegate: CatalogStorage, cache: RedisJsonCache):
+    def __init__(self, delegate: CatalogStorage, cache: RedisJsonCache, local: LocalJsonCache | None = None):
         self.delegate = delegate
         self.cache = cache
+        self.local = local
 
     @property
     def cache_stats(self) -> dict[str, Any]:
-        return {**self.cache.stats, "namespace": self.cache.namespace, "ttl_seconds": self.cache.ttl_seconds, "circuit": self.cache.breaker.snapshot()}
+        return {
+            **self.cache.stats,
+            "namespace": self.cache.namespace,
+            "ttl_seconds": self.cache.ttl_seconds,
+            "circuit": self.cache.breaker.snapshot(),
+            "local": self.local.snapshot() if self.local else {"enabled": False},
+            "shared": {"enabled": True, **self.cache.stats, "ttl_seconds": self.cache.ttl_seconds},
+        }
 
     def data_version(self) -> str:
         return self.delegate.data_version()
@@ -95,11 +149,19 @@ class CachedCatalogStore:
     def _cached(self, method: str, arguments: Any, loader: Callable[[], Any]) -> Any:
         identity = json.dumps([self.cache.namespace, self.data_version(), method, arguments], ensure_ascii=False, sort_keys=True, default=str)
         key = self.cache.namespace + ":" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        if self.local:
+            hit, value = self.local.get(key)
+            if hit:
+                return value
         cached = self.cache.get(key)
         if cached is not None:
+            if self.local:
+                self.local.set(key, cached)
             return cached
         result = loader()
         self.cache.set(key, result)
+        if self.local:
+            self.local.set(key, result)
         return result
 
     def summary(self) -> dict[str, Any]:
@@ -136,3 +198,11 @@ class CachedCatalogStore:
             self.delegate.close()
         finally:
             self.cache.close()
+
+
+def local_cache_from_environment(redis_ttl_seconds: int) -> LocalJsonCache | None:
+    if os.getenv("CATALOG_LOCAL_CACHE_ENABLED", "true").lower() != "true":
+        return None
+    entries = int(os.getenv("CATALOG_LOCAL_CACHE_ENTRIES", "128"))
+    ttl = int(os.getenv("CATALOG_LOCAL_CACHE_TTL_SECONDS", str(min(15, redis_ttl_seconds))))
+    return LocalJsonCache(entries, ttl)

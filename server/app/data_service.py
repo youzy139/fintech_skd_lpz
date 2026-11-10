@@ -37,7 +37,12 @@ def create_data_app(service: DataCatalogService | None = None) -> FastAPI:
 
     @app.get("/api/health", tags=["system"])
     def health(request: Request):
-        return {"status": "ok", "service": "data", "version": app.version, "storage_mode": request.app.state.service.storage_mode}
+        report = {"status": "ok", "service": "data", "version": app.version, "storage_mode": request.app.state.service.storage_mode}
+        catalog = getattr(request.app.state.service, "catalog", None)
+        cache_stats = getattr(catalog, "cache_stats", None)
+        if cache_stats is not None:
+            report["catalog_cache"] = cache_stats
+        return report
 
     @app.get("/api/health/ready", tags=["system"])
     def ready(request: Request):

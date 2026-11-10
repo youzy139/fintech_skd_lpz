@@ -44,3 +44,10 @@ html{scroll-behavior:smooth}section{scroll-margin-top:24px}.shell{animation:work
 .audit-table table { width: 100%; border-collapse: collapse; }
 .audit-table th, .audit-table td { padding: 12px; border-bottom: 1px solid var(--border, #284150); text-align: left; white-space: nowrap; }
 .audit-table code { font-size: 12px; }
+
+.archive-row { display: grid; grid-template-columns: minmax(260px, 1fr) auto auto auto; gap: 14px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.archive-row > div { display: grid; gap: 6px; }
+.archive-row small, .archive-row code { color: var(--muted); overflow-wrap: anywhere; }
+.archive-row button { padding: 7px 10px; border: 1px solid #385363; border-radius: 6px; background: #10232c; color: #b8d7df; cursor: pointer; }
+.notice { padding: 12px 16px; border: 1px solid #285e52; border-radius: 8px; background: #12332e; color: #a5e4d1; }
+@media(max-width:720px){.archive-row{grid-template-columns:1fr 1fr}.archive-row>div{grid-column:1/-1}}

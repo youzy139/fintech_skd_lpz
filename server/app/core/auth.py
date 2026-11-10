@@ -68,6 +68,13 @@ class AuthStore:
                 CREATE TABLE IF NOT EXISTS auth_sessions (id TEXT PRIMARY KEY, username TEXT NOT NULL, expires INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS auth_attempts (id TEXT PRIMARY KEY, count INTEGER NOT NULL, until INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS auth_audit (id INTEGER PRIMARY KEY, occurred INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS auth_audit_archives (
+                    id TEXT PRIMARY KEY, first_id INTEGER NOT NULL, last_id INTEGER NOT NULL,
+                    first_occurred INTEGER NOT NULL, last_occurred INTEGER NOT NULL,
+                    record_count INTEGER NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL,
+                    bucket TEXT NOT NULL, object_key TEXT NOT NULL UNIQUE, created INTEGER NOT NULL,
+                    last_verified INTEGER, verification TEXT NOT NULL DEFAULT 'unverified'
+                );
             """)
             db.execute("BEGIN IMMEDIATE")
             columns = {row[1] for row in db.execute("PRAGMA table_info(auth_audit)")}
@@ -117,6 +124,44 @@ class AuthStore:
             rows = [dict(row) for row in db.execute("SELECT id,occurred,actor,action,target,request_id,status FROM auth_audit" + where + " ORDER BY id DESC LIMIT ?", (*parameters, limit + 1))]
         items = rows[:limit]
         return {"items": items, "next_before": items[-1]["id"] if len(rows) > limit else None}
+
+    def archive_candidates(self, cutoff: int, keep: int, limit: int = 5000) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            boundary = db.execute("SELECT id FROM auth_audit ORDER BY id DESC LIMIT 1 OFFSET ?", (keep - 1,)).fetchone()
+            if boundary is None:
+                return []
+            return [dict(row) for row in db.execute(
+                "SELECT id,occurred,actor,action,target,request_id,status FROM auth_audit WHERE occurred<? AND id<? ORDER BY id LIMIT ?",
+                (cutoff, boundary["id"], limit),
+            )]
+
+    def commit_archive(self, metadata: dict[str, Any], identifiers: list[int]) -> None:
+        placeholders = ",".join("?" for _ in identifiers)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            count = db.execute(f"SELECT count(*) FROM auth_audit WHERE id IN ({placeholders})", identifiers).fetchone()[0]
+            if count != len(identifiers):
+                raise RuntimeError("待归档审计记录已变化，未删除在线记录")
+            db.execute(
+                "INSERT INTO auth_audit_archives(id,first_id,last_id,first_occurred,last_occurred,record_count,sha256,size,bucket,object_key,created) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                tuple(metadata[name] for name in ("id", "first_id", "last_id", "first_occurred", "last_occurred", "record_count", "sha256", "size", "bucket", "object_key", "created")),
+            )
+            db.execute(f"DELETE FROM auth_audit WHERE id IN ({placeholders})", identifiers)
+
+    def audit_archives(self) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            return [dict(row) for row in db.execute("SELECT * FROM auth_audit_archives ORDER BY first_id DESC")]
+
+    def audit_archive(self, identifier: str) -> dict[str, Any]:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM auth_audit_archives WHERE id=?", (identifier,)).fetchone()
+        if row is None:
+            raise KeyError(identifier)
+        return dict(row)
+
+    def record_archive_verification(self, identifier: str, verified: int, result: str) -> None:
+        with self.connect() as db:
+            db.execute("UPDATE auth_audit_archives SET last_verified=?,verification=? WHERE id=?", (verified, result, identifier))
 
     def status(self):
         with self.connect() as db:

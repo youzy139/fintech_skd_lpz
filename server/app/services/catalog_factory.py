@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.core.config import AppConfig
-from app.services.cache import CachedCatalogStore, RedisJsonCache
+from app.services.cache import CachedCatalogStore, RedisJsonCache, local_cache_from_environment
 from app.services.catalog import CatalogStore
 from app.services.clickhouse_store import ClickHouseCatalogStore
 from app.services.contracts import CatalogReader, CatalogStorage
@@ -14,7 +14,8 @@ def create_catalog(config: AppConfig) -> CatalogStorage:
     else:
         catalog = CatalogStore(config.database_path)
     if config.redis.get("enabled", False):
-        return CachedCatalogStore(catalog, RedisJsonCache.from_config(config.redis))
+        shared = RedisJsonCache.from_config(config.redis)
+        return CachedCatalogStore(catalog, shared, local_cache_from_environment(shared.ttl_seconds))
     return catalog
 
 

@@ -35,6 +35,10 @@ class RemoteCatalogClient:
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError, OSError) as error:
             raise DataServiceError("数据服务暂时不可用") from error
 
+    @property
+    def cache_stats(self) -> dict[str, Any]:
+        return self._get("/api/health").get("catalog_cache", {"shared": {"enabled": False}, "local": {"enabled": False}})
+
     def data_version(self) -> str:
         return self._get("/api/data/version")["data_version"]
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Any
@@ -95,9 +96,26 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
             store = replay_store or (ReplayStore(":memory:") if not initialize else None)
             app.state.replays = ReplayManager(app.state.service, config, store, app.state.replay_leases)
             app.state.service.replay_manager = app.state.replays
+        retention_worker = None
+        if service_name == "marketlens-api" and auth_enabled() and config.minio.get("enabled", False):
+            from app.services.audit_archive import audit_archive
+
+            async def retain_audit():
+                interval = max(60, int(os.getenv("AUDIT_ARCHIVE_INTERVAL_SECONDS", "3600")))
+                while True:
+                    await asyncio.sleep(interval)
+                    try:
+                        await asyncio.to_thread(audit_archive().archive_expired)
+                    except Exception as error:
+                        logging.getLogger("marketlens.audit").error("audit_archive_failed error_type=%s", type(error).__name__)
+
+            retention_worker = asyncio.create_task(retain_audit())
         try:
             yield
         finally:
+            if retention_worker is not None:
+                retention_worker.cancel()
+                await asyncio.gather(retention_worker, return_exceptions=True)
             if app.state.replays is not None:
                 await app.state.replays.close()
             if service is None:
