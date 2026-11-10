@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.core.auth import outgoing_auth_headers
 from app.core.observability import percentile
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
@@ -22,8 +23,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
 def api_request(opener, base_url: str, path: str, payload: dict[str, Any] | None = None, timeout: float = 60) -> dict[str, Any]:
+    opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}))
     body = None if payload is None else json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(base_url + path, data=body, headers={"Content-Type": "application/json"})
+    request = urllib.request.Request(base_url + path, data=body, headers={"Content-Type": "application/json", **outgoing_auth_headers()})
     try:
         with opener.open(request, timeout=timeout) as response:
             return json.load(response)
@@ -126,7 +128,12 @@ def run_once(opener, base_url: str, mode: str, start: str, end: str, speed: floa
 
 
 def git_revision() -> str:
-    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPOSITORY_ROOT, capture_output=True, text=True, check=False)
+    if os.getenv("MARKETLENS_GIT_REVISION"):
+        return os.environ["MARKETLENS_GIT_REVISION"]
+    try:
+        result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPOSITORY_ROOT, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return "unknown"
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 

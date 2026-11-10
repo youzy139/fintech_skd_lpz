@@ -127,6 +127,8 @@ MarketLens 要解决的不是“让 AI 猜明天涨还是跌”，而是：
 
 宏观与文本背景批次已完成工程验证：预警证据只关联前一状态日的经济日历和公众号，保留来源时间口径，不参与模型或规则；新闻、指标、研究和社媒在时间语义未核实前继续排除。后端 158 项、前端 26 项通过，分支覆盖率 77.34%，真实日期与数据服务故障降级验证通过，右侧证据抽屉已通过用户页面验收。详见 [背景证据记录](docs/v0.3.4-context-evidence.md)。
 
+性能与 CI 批次已形成首轮基线：顺序 API p95 为 16–27ms，100 路并发 p95 为 1.84–2.33s；单体 WebSocket 推送 p95 为 14.67ms；两日三通道结果一致但吞吐远低于 10 万条/秒目标，未宣称性能全面达标。后端 160 项、前端 26 项、真实 Chrome E2E 完整流程通过，覆盖率 77.25%。详见 [性能基线](docs/v0.3.4-performance.md) 与 [CI/E2E 说明](docs/v0.3.4-ci-e2e.md)。
+
 ### 尚未达成
 
 - 新闻、社媒、宏观和商品数据尚未进入回放模型。
@@ -291,6 +293,11 @@ curl --request POST --header "Content-Type: application/json" \
 ```bash
 PYTHONUTF8=1 conda run -n fintech python -m pytest --cov=market_core --cov=server/app --cov-report=term-missing server/tests
 cd web && npm test && npm run build
+
+# 独立合成数据环境；本地已有 Chrome 时可直接运行
+cd web && npm run test:e2e
+# 干净环境首次安装 Playwright Chromium
+cd web && npm run test:e2e:install && npm run test:e2e
 ```
 
 ## 文档
@@ -310,6 +317,8 @@ cd web && npm test && npm run build
 - [v0.3.4 依赖监控与 Redis 熔断](docs/v0.3.4-dependencies.md)：六类依赖探针、管理员监控页、读取降级与写操作失败关闭。
 - [v0.3.4 预警规则与证据链](docs/v0.3.4-alert-rules.md)：确定性阈值、规则版本、历史版本恢复、审计和当日状态证据。
 - [v0.3.4 宏观与文本背景证据](docs/v0.3.4-context-evidence.md)：前一状态日时间边界、来源时间口径、排除类型与故障降级。
+- [v0.3.4 性能与资源基线](docs/v0.3.4-performance.md)：API/并发、WebSocket、三通道结果与未达标边界。
+- [v0.3.4 CI 与持续浏览器 E2E](docs/v0.3.4-ci-e2e.md)：GitHub Actions、合成数据环境、真实 Chrome 全流程。
 - [AGENTS.md](AGENTS.md)：数据口径、竞赛约束和开发注意事项。
 - 根目录的赛题 PDF 与发布 PPT：正式竞赛要求及评分依据。
 
