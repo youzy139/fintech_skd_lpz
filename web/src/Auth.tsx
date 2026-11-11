@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { api } from './api'
-import { Audit } from './Audit'
-import { SystemStatus } from './SystemStatus'
+import Icon from './Icon'
 
 type User = { username: string; role: 'observer' | 'analyst' | 'admin'; domains: string[]; expires_at: number | null; can_control_replay: boolean }
 const developer: User = { username: 'local-dev', role: 'admin', domains: ['market', 'catalog'], expires_at: null, can_control_replay: true }
@@ -17,11 +16,7 @@ export function AuthBoundary({ children }: { children: React.ReactNode }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
-  const [accounts, setAccounts] = useState(false)
-  const [audit, setAudit] = useState(false)
-  const [monitoring, setMonitoring] = useState(false)
   const [attempt, setAttempt] = useState(0)
-
   useEffect(() => {
     let disposed = false
     setError('')
@@ -33,17 +28,15 @@ export function AuthBoundary({ children }: { children: React.ReactNode }) {
         try { const current = await api<User>('/api/auth/me'); if (!disposed) setUser(current) } catch { /* Login form remains available. */ }
       }
     }).catch(() => setError('无法连接身份服务，请刷新重试'))
-    const expired = () => { setUser(null); setAccounts(false); setAudit(false); setMonitoring(false); setError('登录已失效，请重新登录') }
+    const expired = () => { setUser(null); setError('登录已失效，请重新登录') }
     window.addEventListener('marketlens:unauthorized', expired)
     return () => { disposed = true; window.removeEventListener('marketlens:unauthorized', expired) }
   }, [attempt])
-
   useEffect(() => {
     if (!user?.expires_at) return
-    const timer = setTimeout(() => { setUser(null); setAccounts(false); setAudit(false); setMonitoring(false); setError('登录已到期，请重新登录') }, Math.max(0, user.expires_at * 1000 - Date.now()))
+    const timer = setTimeout(() => { setUser(null); setError('登录已到期，请重新登录') }, Math.max(0, user.expires_at * 1000 - Date.now()))
     return () => clearTimeout(timer)
   }, [user])
-
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError('')
     try {
@@ -52,57 +45,17 @@ export function AuthBoundary({ children }: { children: React.ReactNode }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : '登录失败') }
     finally { setBusy(false) }
   }
-
   async function logout() {
     setBusy(true)
-    try { await api('/api/auth/logout', undefined, { method: 'POST' }); setUser(null); setAccounts(false); setAudit(false); setMonitoring(false); setError('') }
+    try { await api('/api/auth/logout', undefined, { method: 'POST' }); setUser(null); setError('') }
     catch (reason) { setError(reason instanceof Error ? reason.message : '退出失败，请重试') }
     finally { setBusy(false) }
   }
-
-  if (!status) return <main className="boot"><h1>MarketLens</h1><p role={error ? 'alert' : 'status'}>{error || '正在检查登录状态…'}</p>{error && <button onClick={() => setAttempt(value => value + 1)}>重新连接身份服务</button>}</main>
-  if (!user) return <main className="auth-screen"><form className="auth-card" onSubmit={event => void submit(event)}><span className="eyebrow">MARKETLENS</span><h1>{status.setup_required ? '创建首位管理员' : '登录市场工作台'}</h1><p>{status.setup_required ? '使用本机初始化凭据设置管理员账号。' : '登录后按账号权限查看市场、数据与历史回放。'}</p>{status.setup_required && <label>初始化凭据<input required autoComplete="off" value={code} onChange={event => setCode(event.target.value)} type="password" /></label>}<label>用户名<input required autoComplete="username" value={username} maxLength={40} onChange={event => setUsername(event.target.value)} /></label><label>密码<input required autoComplete={status.setup_required ? 'new-password' : 'current-password'} minLength={status.setup_required ? 12 : 1} maxLength={128} type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>{status.setup_required && <small>密码至少 12 位；用户名支持字母、数字、点、下划线和短横线。</small>}{error && <p className="error" role="alert">{error}</p>}<button disabled={busy} type="submit">{busy ? '正在验证…' : status.setup_required ? '创建并进入' : '登录'}</button></form></main>
-  return <Context.Provider value={{ user, enabled: status.enabled }}>
-    <div className="account-bar">
-      <span>{status.enabled ? `${user.username} · ${roles[user.role]}` : '本地开发模式 · 未启用认证'}</span>
-      <small>{user.domains.includes('market') ? '市场分析 ' : ''}{user.domains.includes('catalog') ? '数据目录' : ''}</small>
-      {status.enabled && <>
-        {user.role === 'admin' && <button onClick={() => { setAccounts(!accounts); setAudit(false); setMonitoring(false) }}>{accounts ? '返回平台' : '账号权限'}</button>}
-        {user.role === 'admin' && <button onClick={() => { setAudit(!audit); setAccounts(false); setMonitoring(false) }}>{audit ? '返回平台' : '审计记录'}</button>}
-        {user.role === 'admin' && <button onClick={() => { setMonitoring(!monitoring); setAccounts(false); setAudit(false) }}>{monitoring ? '返回平台' : '系统监控'}</button>}
-        <button disabled={busy} onClick={() => void logout()}>退出登录</button>
-      </>}
-    </div>
-    {error && <div className="error" role="alert">{error}</div>}
-    {monitoring ? <SystemStatus /> : audit ? <Audit /> : accounts ? <Accounts /> : <div key={user.username}>{children}</div>}
-  </Context.Provider>
-}
-
-function Accounts() {
-  const { user } = useAuth()
-  const [users, setUsers] = useState<(User & { enabled: boolean })[]>([])
-  const [name, setName] = useState('')
-  const [password, setPassword] = useState('')
-  const [role, setRole] = useState('observer')
-  const [domains, setDomains] = useState(['market', 'catalog'])
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState('')
-  const load = () => api<typeof users>('/api/auth/users').then(setUsers)
-  useEffect(() => { load().catch(() => setError('无法加载用户列表')) }, [])
-  async function save(action: () => Promise<unknown>) {
-    setBusy(true); setError(''); setNotice('')
-    try { await action(); await load(); setPassword(''); setNotice('已保存；修改已有账号会立即撤销其原登录状态。') }
-    catch (reason) { setError(reason instanceof Error ? reason.message : '保存失败') }
-    finally { setBusy(false) }
-  }
-  return <main className="account-page"><h1>账号与数据权限</h1><p>观察者只读；分析员可控制回放；管理员管理账号。回放需要市场和数据目录两个范围。</p>{error && <p className="error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}<section className="panel"><h2>新增账号</h2><form className="account-form" onSubmit={event => { event.preventDefault(); void save(() => api('/api/auth/users', undefined, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: name, password, role, domains }) })) }}><label>用户名<input required value={name} onChange={event => setName(event.target.value)} /></label><label>初始密码<input type="password" required minLength={12} maxLength={128} autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>角色<select value={role} onChange={event => { setRole(event.target.value); if (event.target.value === 'admin') setDomains(['market', 'catalog']) }}>{Object.entries(roles).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>{['market', 'catalog'].map(domain => <label key={domain}><input type="checkbox" checked={domains.includes(domain)} disabled={role === 'admin'} onChange={event => setDomains(current => event.target.checked ? [...current, domain] : current.filter(value => value !== domain))} />{domain === 'market' ? '市场分析' : '数据目录'}</label>)}<button disabled={busy}>创建账号</button></form></section><section className="panel"><h2>已有账号</h2>{users.map(account => <AccountRow key={JSON.stringify(account)} account={account} self={account.username === user.username} busy={busy} onSave={settings => void save(() => api(`/api/auth/users/${encodeURIComponent(account.username)}`, undefined, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }))} />)}</section></main>
-}
-
-function AccountRow({ account, self, busy, onSave }: { account: User & { enabled: boolean }; self: boolean; busy: boolean; onSave: (settings: unknown) => void }) {
-  const [role, setRole] = useState(account.role)
-  const [domains, setDomains] = useState(account.domains)
-  const [enabled, setEnabled] = useState(account.enabled)
-  const [password, setPassword] = useState('')
-  return <form className="account-form" onSubmit={event => { event.preventDefault(); onSave({ role, domains, enabled, ...(password ? { password } : {}) }) }}><strong>{account.username}{self ? '（当前账号）' : ''}</strong><select aria-label={`${account.username}角色`} disabled={self} value={role} onChange={event => { setRole(event.target.value as User['role']); if (event.target.value === 'admin') setDomains(['market', 'catalog']) }}>{Object.entries(roles).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>{['market', 'catalog'].map(domain => <label key={domain}><input type="checkbox" disabled={self || role === 'admin'} checked={domains.includes(domain)} onChange={event => setDomains(current => event.target.checked ? [...current, domain] : current.filter(value => value !== domain))} />{domain === 'market' ? '市场分析' : '数据目录'}</label>)}<label><input type="checkbox" checked={enabled} disabled={self} onChange={event => setEnabled(event.target.checked)} />启用</label><input aria-label={`${account.username}新密码`} type="password" placeholder="新密码（留空不改）" minLength={12} maxLength={128} autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /><button disabled={busy}>保存</button></form>
+  if (!status) return <main className="boot"><div className="boot-brand">M<span>·</span></div><h1>MarketLens</h1><p role={error ? 'alert' : 'status'}>{error || '正在检查登录状态…'}</p>{error && <button onClick={() => setAttempt(value => value + 1)}>重新连接身份服务</button>}</main>
+  if (!user) return <main className="auth-screen"><section className="auth-intro"><span className="auth-brand">M<span>·</span></span><p className="eyebrow">MARKETLENS TERMINAL</p><h1>市场状态研究，<br />从可信证据开始。</h1><p>多资产行情 · Walk-forward 状态识别<br />确定性预警 · 事件时间回放</p><small>历史数据研究环境，不提供实时行情或买卖指令。</small></section><form className="auth-card" onSubmit={event => void submit(event)}><span className="eyebrow">SECURE WORKSPACE</span><h2>{status.setup_required ? '创建首位管理员' : '登录市场工作台'}</h2><p>{status.setup_required ? '使用本机初始化凭据设置管理员账号。' : '登录后按账号权限查看市场、数据与历史回放。'}</p>{status.setup_required && <label>初始化凭据<input required autoComplete="off" value={code} onChange={event => setCode(event.target.value)} type="password" /></label>}<label>用户名<input required autoComplete="username" value={username} maxLength={40} onChange={event => setUsername(event.target.value)} /></label><label>密码<input required autoComplete={status.setup_required ? 'new-password' : 'current-password'} minLength={status.setup_required ? 12 : 1} maxLength={128} type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>{status.setup_required && <small>密码至少 12 位；用户名支持字母、数字、点、下划线和短横线。</small>}{error && <p className="error" role="alert">{error}</p>}<button disabled={busy} type="submit">{busy ? '正在验证…' : status.setup_required ? '创建并进入' : '登录'}<Icon name="arrow" /></button></form></main>
+  return <Context.Provider value={{ user, enabled: status.enabled }}><div className="app-frame">
+    <div className="account-bar"><a className="account-brand" href="#/home"><span>M·</span>MarketLens<small>市场状态终端</small></a><span className="account-environment">{status.enabled ? '研究与监控环境' : '本地开发模式 · 未启用认证'}</span><small>{user.domains.includes('market') ? '市场分析 ' : ''}{user.domains.includes('catalog') ? '数据目录' : ''}</small><span className="account-user">{user.username} · {roles[user.role]}</span>{status.enabled && <>{user.role === 'admin' && <button onClick={() => { window.location.hash = '/accounts' }}>账号权限</button>}{user.role === 'admin' && <button onClick={() => { window.location.hash = '/audit' }}>审计记录</button>}{user.role === 'admin' && <button onClick={() => { window.location.hash = '/system' }}>系统监控</button>}<button disabled={busy} onClick={() => void logout()}><Icon name="logout" />退出登录</button></>}</div>
+    {error && <div className="global-error" role="alert">{error}</div>}
+    <div key={user.username}>{children}</div>
+  </div></Context.Provider>
 }

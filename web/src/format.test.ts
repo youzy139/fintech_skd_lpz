@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { downloadCsv, numeric, percent } from './format'
+import { directionTone, downloadCsv, numeric, percent } from './format'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
@@ -10,6 +10,13 @@ describe('research values and CSV exports', () => {
     expect(numeric(Infinity)).toBe('—')
     expect(percent(0)).toBe('0.00%')
     expect(percent(-.125)).toBe('-12.50%')
+  })
+
+  it('uses China market direction colors without coloring missing values', () => {
+    expect(directionTone(.01)).toBe('positive')
+    expect(directionTone(-.01)).toBe('negative')
+    expect(directionTone(null)).toBe('')
+    expect(directionTone(Infinity)).toBe('')
   })
 
   it('exports quoted UTF-8 CSV and neutralizes spreadsheet expressions', async () => {

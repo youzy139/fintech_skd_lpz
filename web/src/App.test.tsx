@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 vi.mock('./Chart', () => ({ default: ({ option }: { option: unknown }) => <div data-testid="chart" data-option={JSON.stringify(option)} /> }))
+vi.mock('./RegimeChart', () => ({ default: ({ option }: { option: unknown }) => <div data-testid="chart" data-option={JSON.stringify(option)} /> }))
 
 const latest = { date: '2026-04-30', label: '震荡平衡 · C1', confidence: 0.82, model_version: 'test', trained_through: '2026-04-29', features: { volatility: 0.2, momentum: 0.05, correlation: 0.3, sample_count: 30 }, contributions: [{ feature: 'volatility', value: 0.2, standardized: 1.2 }] }
 const socialRecord = { source_id: 'source', source_path: '科技.csv', kind: 'social', record_index: 0, event_date: '2024-01-02', title: '<b>原文</b>', payload: { created_at_twitter: '2024-01-02', text: '<b>原文</b>' }, tags: ['人工智能'] }
@@ -30,7 +31,7 @@ const responses: Record<string, unknown> = {
 
 async function openDataCenter() {
   render(<App />)
-  await waitFor(() => expect(screen.getByText('震荡平衡 · C1')).toBeInTheDocument())
+  await screen.findAllByText('震荡平衡 · C1')
   fireEvent.click(screen.getByRole('button', { name: /进入市场工作台/ }))
   await waitFor(() => expect(screen.getByRole('heading', { name: '市场总览' })).toBeInTheDocument())
   fireEvent.click(screen.getByRole('button', { name: /数据中心/ }))
@@ -75,12 +76,12 @@ describe('App', () => {
   it('loads a small home summary and preserves dashboard navigation', async () => {
     render(<App />)
     expect(screen.getByText('读懂市场状态，')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText('震荡平衡 · C1')).toBeInTheDocument())
+    await screen.findAllByText('震荡平衡 · C1')
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(fetch).toHaveBeenCalledWith('/api/home/summary', { signal: undefined })
     fireEvent.click(screen.getByRole('button', { name: /进入市场工作台/ }))
     await waitFor(() => expect(screen.getByRole('heading', { name: '市场总览' })).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /网站首页/ }))
+    fireEvent.click(screen.getByRole('button', { name: /终端首页/ }))
     expect(screen.getByText('从一个更清晰的视角，观察市场。')).toBeInTheDocument()
   })
 
@@ -161,7 +162,7 @@ describe('App', () => {
     responses['/api/regimes?limit=2000'] = [early, latest]
     try {
       render(<App />)
-      await waitFor(() => expect(screen.getByText('震荡平衡 · C1')).toBeInTheDocument())
+      await screen.findAllByText('震荡平衡 · C1')
       fireEvent.click(screen.getByRole('button', { name: /进入市场工作台/ }))
       fireEvent.click(await screen.findByRole('button', { name: /状态分析/ }))
       expect(await screen.findByText('状态特征热力图')).toBeInTheDocument()

@@ -9,4 +9,11 @@ describe('permission-aware page links', () => {
     expect(resolvePage('#/unknown', ['market', 'catalog'])).toBe('home')
     expect(allowedPages([])).toEqual([])
   })
+
+  it('routes administration pages by role and preserves direct links', () => {
+    expect(resolvePage('#/system', ['market', 'catalog'], 'admin')).toBe('system')
+    expect(resolvePage('#/accounts', ['market', 'catalog'], 'observer')).toBe('home')
+    expect(allowedPages(['market', 'catalog'], 'analyst')).not.toContain('audit')
+    expect(allowedPages([], 'admin')).toEqual(['accounts', 'audit', 'system'])
+  })
 })

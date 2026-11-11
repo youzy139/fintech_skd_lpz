@@ -6,6 +6,10 @@ export function percent(value: number | null | undefined, digits = 2) {
   return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : '—'
 }
 
+export function directionTone(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value >= 0 ? 'positive' : 'negative' : ''
+}
+
 export function downloadCsv(filename: string, rows: (string | number | null | undefined)[][]) {
   const csv = rows.map(row => row.map(value => {
     let text = value === null || value === undefined ? '' : String(value)
