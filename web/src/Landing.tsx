@@ -1,62 +1,32 @@
 import { useEffect, useState } from 'react'
 import { scrollExactlyToTop } from './motion'
+import { percent, numeric } from './format'
+import Icon from './Icon'
+import type { Page } from './navigation'
 import type { HomeSummary } from './types'
 
-type LandingData = HomeSummary
-
-export default function Landing({ data, onEnter }: { data: LandingData | null; onEnter: () => void }) {
+export default function Landing({ data, onEnter, onNavigate, error, onRetry }: { data: HomeSummary | null; onEnter: () => void; onNavigate: (page: Page) => void; error: string; onRetry: () => void }) {
   const [showBackToTop, setShowBackToTop] = useState(false)
-  const latest = data?.latest
   useEffect(() => {
     const onScroll = () => setShowBackToTop(window.scrollY > 360)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('scroll', onScroll, { passive: true }); onScroll()
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
-  const backToTop = scrollExactlyToTop
-  return <div className="landing">
-    <nav className="landing-nav">
-      <a className="landing-brand" href="#top" aria-label="MarketLens 首页"><span className="brand-mark">M</span><span>MarketLens<small>市场状态监控平台</small></span></a>
-      <div className="landing-links"><a href="#capabilities">产品能力</a><a href="#method">技术方法</a><a href="#data">数据基础</a></div>
-      <button className="nav-entry" onClick={onEnter}>进入工作台 <span>→</span></button>
-    </nav>
-
-    <main id="top">
-      <section className="hero">
-        <div className="hero-copy">
-          <div className="hero-badge"><span className="pulse" />多资产市场状态智能监控</div>
-          <h1>读懂市场状态，<br /><em>先于风险一步。</em></h1>
-          <p>汇聚多资产行情，以可解释的机器学习识别市场状态、追踪特征变化并监测风险，让复杂市场信息成为清晰的研究依据。</p>
-          <div className="hero-actions"><button className="primary-action" onClick={onEnter}>进入市场工作台 <span>→</span></button><a href="#method">了解技术方法</a></div>
-          <div className="hero-proof"><span>39 类真实资产序列</span><span>Walk-forward 建模</span><span>可解释风险预警</span></div>
-        </div>
-        <div className="hero-visual" aria-label="实时市场状态摘要">
-          <div className="visual-grid" />
-          <div className="live-card">
-            <div className="live-head"><span><i />MARKET REGIME</span><small>{latest?.date ?? '等待数据服务'}</small></div>
-            <div className="live-state">{latest?.label ?? '市场状态待连接'}</div>
-            <div className="live-confidence"><span>模型置信度</span><strong>{latest ? `${(latest.confidence * 100).toFixed(1)}%` : '—'}</strong></div>
-            <div className="confidence-track"><i style={{ width: `${(latest?.confidence ?? 0) * 100}%` }} /></div>
-            <div className="live-features"><div><span>年化波动率</span><strong>{latest ? `${(latest.features.volatility * 100).toFixed(2)}%` : '—'}</strong></div><div><span>中期动量</span><strong>{latest ? `${(latest.features.momentum * 100).toFixed(2)}%` : '—'}</strong></div><div><span>资产相关性</span><strong>{latest?.features.correlation.toFixed(3) ?? '—'}</strong></div></div>
-            <div className="mini-chart"><svg viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#47d7ac" stopOpacity=".3"/><stop offset="1" stopColor="#47d7ac" stopOpacity="0"/></linearGradient></defs><path d="M0 82 L25 76 L50 79 L75 62 L100 68 L125 48 L150 57 L175 43 L200 50 L225 31 L250 39 L275 22 L300 30 L325 19 L350 25 L375 12 L400 16 L400 100 L0 100Z" fill="url(#area)"/><path d="M0 82 L25 76 L50 79 L75 62 L100 68 L125 48 L150 57 L175 43 L200 50 L225 31 L250 39 L275 22 L300 30 L325 19 L350 25 L375 12 L400 16" fill="none" stroke="#47d7ac" strokeWidth="2"/></svg></div>
-            <div className="live-foot"><span>状态判断</span><span>预警决策</span><span>分析建议</span></div>
-          </div>
-          <div className="floating-note"><span>Δ</span><div><small>持续监测</small><strong>{data?.alert_count ?? '—'} 条风险信号</strong></div></div>
-        </div>
-      </section>
-
-      <section className="capabilities" id="capabilities">
-        <div className="section-heading"><span>CORE CAPABILITIES</span><h2>从原始数据到市场洞察</h2><p>不是单一图表，而是一条可验证、可追溯的市场监控链路。</p></div>
-        <div className="capability-grid"><article><b>01</b><h3>市场状态识别</h3><p>融合收益、波动、动量和相关性，通过滚动训练模型识别不同市场环境。</p><span>PCA · KMeans · Walk-forward</span></article><article><b>02</b><h3>风险监测预警</h3><p>用确定性规则捕捉高波动、异常联动与状态切换，展示触发证据。</p><span>异常检测 · 规则引擎</span></article><article><b>03</b><h3>多维特征分析</h3><p>观察特征变化及其标准化偏离，理解模型为什么给出当前判断。</p><span>特征工程 · 状态画像</span></article></div>
-      </section>
-
-      <section className="method" id="method"><div className="section-heading"><span>HOW IT WORKS</span><h2>判断有依据，结果可追溯</h2></div><div className="method-flow"><div><b>1</b><h3>多源数据</h3><p>保留原始交易日历与字段口径</p></div><i>→</i><div><b>2</b><h3>特征计算</h3><p>从行情提取市场统计特征</p></div><i>→</i><div><b>3</b><h3>状态与预警</h3><p>模型判断，规则决定是否提醒</p></div><i>→</i><div><b>4</b><h3>可视化研究</h3><p>在看板中查看证据与历史变化</p></div></div></section>
-
-      <section className="data-banner" id="data"><div><span>REAL DATA, VERIFIABLE RESULTS</span><h2>每一个判断，都从真实数据开始。</h2></div><div className="data-numbers"><div><strong>{data?.loaded_assets ?? '—'}</strong><span>可用资产</span></div><div><strong>{data?.total_rows.toLocaleString() ?? '—'}</strong><span>行情记录</span></div><div><strong>{data?.state_count ?? '—'}</strong><span>历史状态</span></div></div></section>
-
-      <section className="landing-cta"><span>MARKETLENS WORKSPACE</span><h2>从一个更清晰的视角，观察市场。</h2><p>进入工作台，探索市场状态、关键特征与风险预警。</p><button className="primary-action" onClick={onEnter}>开始探索 <span>→</span></button></section>
-    </main>
-    <footer className="landing-footer"><div className="landing-brand"><span className="brand-mark">M</span><span>MarketLens</span></div><p>市场状态用于研究辅助，不构成投资建议 · v0.3.3 测试版本</p></footer>
-    <button className={`back-to-top ${showBackToTop ? 'visible' : ''}`} onClick={backToTop} aria-label="回到顶部" title="回到顶部" tabIndex={showBackToTop ? 0 : -1}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></button>
+  const latest = data?.latest
+  const scroll = (event: React.MouseEvent, id: string) => { event.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }) }
+  return <div className="landing" id="top">
+    <nav className="landing-nav" aria-label="首页导航"><a className="landing-brand" href="#/home"><span className="brand-mark">M<span>·</span></span>MarketLens</a><div className="landing-links"><a href="#capabilities" onClick={event => scroll(event, 'capabilities')}>研究工具</a><a href="#method" onClick={event => scroll(event, 'method')}>分析方法</a><a href="#data" onClick={event => scroll(event, 'data')}>数据基础</a></div><button className="nav-entry" onClick={onEnter}>进入工作台 <Icon name="arrow" /></button></nav>
+    <main><section className="hero"><div className="hero-copy"><div className="hero-badge"><span />MARKET REGIME RESEARCH</div><h1>读懂市场状态，<br /><em>让判断有据可循。</em></h1><p>把多资产行情、状态模型与风险证据放在同一视野。观察市场如何变化，也理解每一次判断从何而来。</p><div className="hero-actions"><button className="primary-action" onClick={onEnter}>进入市场工作台 <Icon name="arrow" /></button><button className="hero-secondary" onClick={() => onNavigate('replay')}><Icon name="replay" />探索历史回放</button></div><div className="hero-proof"><span>真实历史数据</span><span>逐日滚动建模</span><span>证据可追溯</span></div></div>
+      <div className="research-preview"><div className="preview-heading"><span><i />MARKET OBSERVATION</span><span>01 / 市场快照</span></div><div className="preview-date">{latest?.date ?? '等待市场数据'}</div><div className="preview-label">当前市场状态</div><h2>{latest?.label ?? (error ? '摘要暂不可用' : '正在连接数据')}</h2><div className="preview-confidence"><span>模型置信度</span><strong>{percent(latest?.confidence, 1)}</strong><div><i style={{ width: `${Math.min(100, Math.max(0, (latest?.confidence ?? 0) * 100))}%` }} /></div></div><div className="preview-numbers"><div><span>年化波动率</span><b>{percent(latest?.features.volatility)}</b></div><div><span>60 日动量</span><b>{percent(latest?.features.momentum)}</b></div><div><span>资产相关性</span><b>{numeric(latest?.features.correlation, 3)}</b></div></div><div className="preview-method"><span>观察</span><Icon name="arrow" /><span>识别</span><Icon name="arrow" /><span>复核</span></div><p className="preview-foot">历史观测 · 数学模型识别 · 非实时行情</p>{error && <div className="error" role="alert">{error}<button onClick={onRetry}>重新加载摘要</button></div>}</div>
+    </section><section className="data-ribbon" id="data"><div><span>DATA FOUNDATION</span><p>让分散的数据，形成连贯的视野。</p></div><div><strong>{data?.loaded_assets.toLocaleString() ?? '—'}<small>个</small></strong><span>有效资产序列</span></div><div><strong>{data?.total_rows.toLocaleString() ?? '—'}</strong><span>有效行情记录</span></div><div><strong>{data?.state_count.toLocaleString() ?? '—'}</strong><span>历史状态日</span></div></section>
+    <section className="capabilities" id="capabilities"><div className="section-heading"><span>THE RESEARCH TOOLKIT</span><h2>从一个更清晰的视角，观察市场。</h2><p>从总览到证据，从当日观测到历史验证。</p></div><div className="capability-grid">{[
+      ['01', 'regimes', '识别市场环境', '观察市场状态与特征热力图，理解不同阶段的波动、动量和资产联动。', 'regimes'],
+      ['02', 'alerts', '追溯风险证据', '查看触发规则、历史阈值与当日状态，关联当时已公开的事件背景。', 'alerts'],
+      ['03', 'replay', '重现历史过程', '按事件时间逐日重新计算，在当时可见的数据范围内检验判断。', 'replay'],
+    ].map(([number, icon, title, description, page]) => <article key={number}><div><Icon name={icon} /><span>{number}</span></div><h3>{title}</h3><p>{description}</p><button onClick={() => onNavigate(page as Page)}>开始探索 <Icon name="arrow" /></button></article>)}</div></section>
+    <section className="method" id="method"><div><p className="eyebrow">METHOD, NOT MYSTERY</p><h2>每一个结论，<br />都有一条可复核的路径。</h2><p>特征由数学计算，状态由滚动模型识别，预警由确定性规则产生。训练数据严格早于识别当日。</p><button className="text-button" onClick={() => onNavigate('features')}>查看特征与口径 <Icon name="arrow" /></button></div><ol className="method-steps"><li><span>01</span><div><h3>保留数据与时间</h3><p>原始字段、来源文件和事件日期可追溯。</p></div></li><li><span>02</span><div><h3>计算多资产特征</h3><p>收益、波动、动量、趋势与相关性。</p></div></li><li><span>03</span><div><h3>逐日识别与规则预警</h3><p>Walk-forward · PCA / KMeans · 历史分位阈值。</p></div></li><li><span>04</span><div><h3>交叉复核与历史验证</h3><p>证据抽屉、状态热力图与三通道历史回放。</p></div></li></ol></section>
+    <section className="landing-cta"><span>SEE THE CONTEXT. FOLLOW THE EVIDENCE.</span><h2>下一次研究，从全貌开始。</h2><button className="primary-action" onClick={onEnter}>打开研究工作台 <Icon name="arrow" /></button></section></main>
+    <footer className="landing-footer"><a className="landing-brand" href="#/home">MarketLens<span>市场状态研究平台</span></a><p>2026 上海科技大学金融科技竞赛 · 历史数据研究 · 不构成投资建议</p></footer>
+    <button className={`back-to-top ${showBackToTop ? 'visible' : ''}`} aria-label="回到顶部" onClick={scrollExactlyToTop}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 12 6-6 6 6M12 6v13" /></svg></button>
   </div>
 }

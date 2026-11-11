@@ -114,13 +114,14 @@ export default function SourceCatalog() {
   const [recordOffset, setRecordOffset] = useState(0)
   const [rawOpen, setRawOpen] = useState(false)
   const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
   const limit = 20
 
   useEffect(() => {
     const controller = new AbortController()
     api<Summary>('/api/data/summary', controller.signal).then(setSummary).catch(reason => { if (!isAbort(reason)) setError(reason.message) })
     return () => controller.abort()
-  }, [])
+  }, [attempt])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -128,7 +129,7 @@ export default function SourceCatalog() {
     const params = kind ? `?kind=${encodeURIComponent(kind)}` : ''
     api<Overview>(`/api/data/overview${params}`, controller.signal).then(setOverview).catch(reason => { if (!isAbort(reason)) setError(reason.message) })
     return () => controller.abort()
-  }, [kind])
+  }, [kind, attempt])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -136,17 +137,18 @@ export default function SourceCatalog() {
     const params = kind ? `?kind=${encodeURIComponent(kind)}` : ''
     api<TagItem[]>(`/api/data/tags${params}`, controller.signal).then(setTags).catch(reason => { if (!isAbort(reason)) setError(reason.message) })
     return () => controller.abort()
-  }, [kind])
+  }, [kind, attempt])
 
   useEffect(() => {
     if (!rawOpen) return
     const controller = new AbortController()
+    setFiles(null)
     const params = new URLSearchParams({ offset: String(fileOffset), limit: String(limit) })
     if (kind) params.set('kind', kind)
     if (fileQuery) params.set('query', fileQuery)
     api<Page<SourceFile>>(`/api/data/files?${params}`, controller.signal).then(setFiles).catch(reason => { if (!isAbort(reason)) setError(reason.message) })
     return () => controller.abort()
-  }, [kind, fileQuery, fileOffset, rawOpen])
+  }, [kind, fileQuery, fileOffset, rawOpen, attempt])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -160,14 +162,14 @@ export default function SourceCatalog() {
     if (!selectedFile && kind) params.set('kind', kind)
     api<Page<SourceRecord>>(`${endpoint}?${params}`, controller.signal).then(setRecords).catch(reason => { if (!isAbort(reason)) setError(reason.message) })
     return () => controller.abort()
-  }, [kind, selectedFile, recordQuery, dateQuery, selectedTags, matchMode, recordOffset])
+  }, [kind, selectedFile, recordQuery, dateQuery, selectedTags, matchMode, recordOffset, attempt])
 
   const trendOption = useMemo(() => ({
     grid: { left: 60, right: 22, top: 24, bottom: 42 },
     tooltip: { trigger: 'axis' as const },
-    xAxis: { type: 'category' as const, data: overview?.trend.map(point => point.period) ?? [], axisLabel: { color: '#78909f', hideOverlap: true }, axisLine: { lineStyle: { color: '#304353' } } },
-    yAxis: { type: 'value' as const, splitLine: { lineStyle: { color: '#1d303d' } }, axisLabel: { color: '#78909f' } },
-    series: [{ type: 'line' as const, data: overview?.trend.map(point => point.count) ?? [], showSymbol: false, lineStyle: { color: '#47d7ac', width: 2 }, areaStyle: { color: 'rgba(71,215,172,.08)' } }],
+    xAxis: { type: 'category' as const, data: overview?.trend.map(point => point.period) ?? [], axisLabel: { color: '#697973', hideOverlap: true }, axisLine: { lineStyle: { color: '#dee5df' } } },
+    yAxis: { type: 'value' as const, splitLine: { lineStyle: { color: '#edf0e9' } }, axisLabel: { color: '#697973' } },
+    series: [{ type: 'line' as const, data: overview?.trend.map(point => point.count) ?? [], showSymbol: false, lineStyle: { color: '#267a66', width: 2 }, areaStyle: { color: 'rgba(38,122,102,.08)' } }],
   }), [overview])
 
   const selectKind = (next: string) => {
@@ -187,10 +189,10 @@ export default function SourceCatalog() {
   const activeName = selectedFile ? selectedFile.path : kindNames[kind] ?? '全部数据'
 
   return <div className="source-catalog">
-    {error && <div className="error">{error}<button onClick={() => setError('')}>关闭</button></div>}
+    {error && <div className="error" role="alert">{error}<button onClick={() => { setError(''); setAttempt(value => value + 1) }}>重试数据查询</button></div>}
     <div className="metrics">
       <div className="metric"><span>数据包文件</span><strong>{summary?.total_files.toLocaleString() ?? '—'}</strong><small>全部原始输入文件</small></div>
-      <div className="metric"><span>已入库文件</span><strong>{summary?.imported_files.toLocaleString() ?? '—'}</strong><small>本地 SQLite 持久化</small></div>
+      <div className="metric"><span>已入库文件</span><strong>{summary?.imported_files.toLocaleString() ?? '—'}</strong><small>当前目录服务的持久化记录</small></div>
       <div className="metric"><span>逻辑记录</span><strong>{summary?.total_records.toLocaleString() ?? '—'}</strong><small>文件中的数据行，不是物理行数</small></div>
       <div className="metric"><span>导入异常</span><strong>{summary?.errors ?? '—'}</strong><small>文件级导入错误</small></div>
     </div>

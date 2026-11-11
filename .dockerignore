@@ -11,6 +11,8 @@ htmlcov
 web/node_modules
 web/dist
 web/.npm-cache
+web/playwright-report
+web/test-results
 flink/target
 server/data
 server/config.json

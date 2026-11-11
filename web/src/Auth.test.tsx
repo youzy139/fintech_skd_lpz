@@ -10,6 +10,15 @@ function Protected() {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('authentication', () => {
+  it('recovers an unavailable identity service without reloading the page', async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ ok: true, json: async () => ({ enabled: false, setup_required: false }) })
+    vi.stubGlobal('fetch', fetcher)
+    render(<AuthBoundary><Protected /></AuthBoundary>)
+    fireEvent.click(await screen.findByRole('button', { name: '重新连接身份服务' }))
+    await screen.findByText('local-dev · 可控制回放')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
   it('requires login, keeps credentials out of storage and clears protected content on logout', async () => {
     vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve({ ok: path !== '/api/auth/me', status: path === '/api/auth/me' ? 401 : 200, json: async () => path === '/api/auth/status' ? { enabled: true, setup_required: false } : path === '/api/auth/login' ? { username: 'reader', role: 'observer', domains: ['market', 'catalog'], expires_at: null, can_control_replay: false } : {} })))
     render(<AuthBoundary><Protected /></AuthBoundary>)

@@ -32,12 +32,18 @@ export default function ReplayCenter() {
   const [busy, setBusy] = useState(false)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState('')
+  const [initializing, setInitializing] = useState(true)
+  const [initializeAttempt, setInitializeAttempt] = useState(0)
   const lastSequence = useRef(0)
   const replayGeneration = useRef(0)
 
   useEffect(() => {
-    Promise.all([api<ReplayCalendar>('/api/replay/calendar'), api<ReplaySession | null>('/api/replay/sessions/current'), api<KafkaStatus>('/api/kafka/status'), api<FlinkStatus>('/api/flink/status')])
+    const controller = new AbortController()
+    setInitializing(true)
+    setError('')
+    Promise.all([api<ReplayCalendar>('/api/replay/calendar', controller.signal), api<ReplaySession | null>('/api/replay/sessions/current', controller.signal), api<KafkaStatus>('/api/kafka/status', controller.signal), api<FlinkStatus>('/api/flink/status', controller.signal)])
       .then(([range, current, kafka, flink]) => {
+        if (controller.signal.aborted) return
         setCalendar(range)
         setKafkaStatus(kafka)
         setFlinkStatus(flink)
@@ -47,8 +53,10 @@ export default function ReplayCenter() {
         setSpeed(current?.speed ?? 1)
         setMode(current?.mode ?? 'local')
       })
-      .catch(reason => setError(reason instanceof Error ? reason.message : '无法加载回放日历'))
-  }, [])
+      .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '无法加载回放日历') })
+      .finally(() => { if (!controller.signal.aborted) setInitializing(false) })
+    return () => controller.abort()
+  }, [initializeAttempt])
 
   useEffect(() => {
     if (!session) return
@@ -149,9 +157,10 @@ export default function ReplayCenter() {
 
   return <>
     <div className="replay-intro"><div><span>EVENT-TIME REPLAY</span><h2>让历史按原来的时间顺序重新到达</h2><p>每天只把当日行情追加到可见历史，再计算特征、状态和预警。完整历史仍在档案库中，但不会提前进入模型。</p></div><b>{mode === 'flink' ? 'Flink 事件时间窗口' : mode === 'kafka' ? 'Kafka 事件传输' : '本地真实计算'} · 非实时行情</b></div>
-    {error && <div className="error" role="alert">{error}</div>}
+    {error && <div className="error" role="alert">{error}{!calendar && <button disabled={initializing} onClick={() => setInitializeAttempt(value => value + 1)}>重新加载回放配置</button>}</div>}
+    {initializing && <p role="status">正在加载回放日历与已有会话…</p>}
     {!user.can_control_replay && <p className="method-note">观察者模式：可查看结果和推送，不能创建、暂停或重新开始回放。</p>}
-    <fieldset className="replay-permission" disabled={!user.can_control_replay}><section className="replay-controls" aria-label="历史回放控制">
+    <fieldset className="replay-permission" disabled={initializing || !calendar || !user.can_control_replay}><section className="replay-controls" aria-label="历史回放控制">
       <div className="replay-range"><label>开始日期<input aria-label="回放开始日期" type="date" min={calendar?.min_date} max={calendar?.max_date} value={startDate} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setStartDate(event.target.value)} /></label><span>至</span><label>结束日期<input aria-label="回放结束日期" type="date" min={calendar?.min_date} max={calendar?.max_date} value={endDate} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setEndDate(event.target.value)} /></label></div>
       <label>事件通道<select aria-label="回放通道" value={mode} disabled={busy || status === 'running' || status === 'paused'} onChange={event => setMode(event.target.value as 'local' | 'kafka' | 'flink')}><option value="local">本地直连</option><option value="kafka" disabled={!kafkaStatus?.enabled}>Kafka 事件{kafkaStatus?.enabled ? '' : '（未启用）'}</option><option value="flink" disabled={!kafkaStatus?.enabled || !flinkStatus?.enabled}>Flink 窗口{kafkaStatus?.enabled && flinkStatus?.enabled ? '' : '（未启用）'}</option></select></label>
       <label className="replay-speed">播放速度<select aria-label="回放速度" value={speed} disabled={busy} onChange={event => void changeSpeed(Number(event.target.value))}>{speeds.map(value => <option key={value} value={value}>{value}×</option>)}</select></label>

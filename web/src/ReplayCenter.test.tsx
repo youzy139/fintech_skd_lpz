@@ -48,6 +48,42 @@ describe('ReplayCenter', () => {
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
+  it('waits for the current session before allowing replay input', async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!
+    let resolveCurrent!: (response: Response) => void
+    vi.mocked(fetch).mockImplementation((...args) => String(args[0]) === '/api/replay/sessions/current'
+      ? new Promise<Response>(resolve => { resolveCurrent = resolve })
+      : originalFetch(...args))
+    render(<ReplayCenter />)
+    expect(screen.getByLabelText('回放开始日期')).toBeDisabled()
+    expect(screen.getByLabelText('回放速度')).toBeDisabled()
+    expect(screen.getByRole('button', { name: '开始回放' })).toBeDisabled()
+    await act(async () => resolveCurrent({ ok: true, json: async () => null } as Response))
+    await waitFor(() => expect(screen.getByLabelText('回放开始日期')).toBeEnabled())
+    fireEvent.change(screen.getByLabelText('回放开始日期'), { target: { value: '2024-03-05' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始回放' }))
+    await waitFor(() => {
+      const creation = vi.mocked(fetch).mock.calls.find(([path]) => path === '/api/replay/sessions')
+      expect(JSON.parse(String(creation?.[1]?.body))).toMatchObject({ start_date: '2024-03-05', end_date: '2024-03-06' })
+    })
+  })
+
+  it('retries failed initialization before enabling replay controls', async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!
+    let failed = true
+    vi.mocked(fetch).mockImplementation((...args) => String(args[0]) === '/api/replay/calendar' && failed
+      ? Promise.reject(new Error('日历服务暂不可用'))
+      : originalFetch(...args))
+    render(<ReplayCenter />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('日历服务暂不可用')
+    expect(screen.getByLabelText('回放开始日期')).toBeDisabled()
+    failed = false
+    fireEvent.click(screen.getByRole('button', { name: '重新加载回放配置' }))
+    await waitFor(() => expect(screen.getByLabelText('回放开始日期')).toBeEnabled())
+    expect(screen.getByLabelText('回放开始日期')).toHaveValue('2024-03-04')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('retains a rejected pending session and retries without creating another', async () => {
     const originalFetch = vi.mocked(fetch).getMockImplementation()!
     let rejected = true

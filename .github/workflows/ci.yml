@@ -37,6 +37,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
         working-directory: web
+      - run: npm audit --audit-level=high --registry=https://registry.npmjs.org
+        working-directory: web
       - run: npm test
         working-directory: web
       - run: npm run build

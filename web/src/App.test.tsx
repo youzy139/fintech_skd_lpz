@@ -35,16 +35,42 @@ async function openDataCenter() {
   await waitFor(() => expect(screen.getByRole('heading', { name: '市场总览' })).toBeInTheDocument())
   fireEvent.click(screen.getByRole('button', { name: /数据中心/ }))
   await waitFor(() => expect(screen.getByRole('heading', { name: '全部数据' })).toBeInTheDocument())
+  await screen.findByRole('button', { name: /社交媒体/ })
 }
 
 describe('App', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '/')
     vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(responses[path] ?? (path.startsWith('/api/data/records?') ? { total: 0, offset: 0, limit: 20, items: [] } : undefined)) })))
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true })
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+  it('opens a direct feature link and responds to browser history changes', async () => {
+    window.history.replaceState(null, '', '/#/features')
+    render(<App />)
+    await screen.findByRole('heading', { name: '特征历史走势' })
+    window.history.replaceState(null, '', '/#/regimes')
+    fireEvent(window, new HashChangeEvent('hashchange'))
+    await screen.findByRole('heading', { name: '状态特征热力图' })
+    expect(screen.getByRole('button', { name: '状态分析' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('retries catalog failures while retaining the selected page', async () => {
+    window.history.replaceState(null, '', '/#/data')
+    let failed = false
+    vi.mocked(fetch).mockImplementation((path) => {
+      if (path === '/api/data/summary' && !failed) { failed = true; return Promise.reject(new Error('catalog offline')) }
+      return Promise.resolve({ ok: true, json: async () => responses[String(path)] }) as Promise<Response>
+    })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: '重试数据查询' }))
+    await screen.findByRole('button', { name: /社交媒体/ })
+    expect(screen.queryByText('catalog offline')).not.toBeInTheDocument()
+    expect(window.location.hash).toBe('#/data')
+  })
 
   it('loads a small home summary and preserves dashboard navigation', async () => {
     render(<App />)

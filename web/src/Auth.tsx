@@ -20,9 +20,11 @@ export function AuthBoundary({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState(false)
   const [audit, setAudit] = useState(false)
   const [monitoring, setMonitoring] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let disposed = false
+    setError('')
     api<{ enabled: boolean; setup_required: boolean }>('/api/auth/status').then(async result => {
       if (disposed) return
       setStatus(result)
@@ -34,7 +36,7 @@ export function AuthBoundary({ children }: { children: React.ReactNode }) {
     const expired = () => { setUser(null); setAccounts(false); setAudit(false); setMonitoring(false); setError('登录已失效，请重新登录') }
     window.addEventListener('marketlens:unauthorized', expired)
     return () => { disposed = true; window.removeEventListener('marketlens:unauthorized', expired) }
-  }, [])
+  }, [attempt])
 
   useEffect(() => {
     if (!user?.expires_at) return
@@ -58,7 +60,7 @@ export function AuthBoundary({ children }: { children: React.ReactNode }) {
     finally { setBusy(false) }
   }
 
-  if (!status) return <main className="boot"><h1>MarketLens</h1><p>{error || '正在检查登录状态…'}</p></main>
+  if (!status) return <main className="boot"><h1>MarketLens</h1><p role={error ? 'alert' : 'status'}>{error || '正在检查登录状态…'}</p>{error && <button onClick={() => setAttempt(value => value + 1)}>重新连接身份服务</button>}</main>
   if (!user) return <main className="auth-screen"><form className="auth-card" onSubmit={event => void submit(event)}><span className="eyebrow">MARKETLENS</span><h1>{status.setup_required ? '创建首位管理员' : '登录市场工作台'}</h1><p>{status.setup_required ? '使用本机初始化凭据设置管理员账号。' : '登录后按账号权限查看市场、数据与历史回放。'}</p>{status.setup_required && <label>初始化凭据<input required autoComplete="off" value={code} onChange={event => setCode(event.target.value)} type="password" /></label>}<label>用户名<input required autoComplete="username" value={username} maxLength={40} onChange={event => setUsername(event.target.value)} /></label><label>密码<input required autoComplete={status.setup_required ? 'new-password' : 'current-password'} minLength={status.setup_required ? 12 : 1} maxLength={128} type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>{status.setup_required && <small>密码至少 12 位；用户名支持字母、数字、点、下划线和短横线。</small>}{error && <p className="error" role="alert">{error}</p>}<button disabled={busy} type="submit">{busy ? '正在验证…' : status.setup_required ? '创建并进入' : '登录'}</button></form></main>
   return <Context.Provider value={{ user, enabled: status.enabled }}>
     <div className="account-bar">

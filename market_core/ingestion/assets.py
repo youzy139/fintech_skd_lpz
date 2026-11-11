@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from datetime import date
 from pathlib import Path
 
@@ -50,8 +51,8 @@ class AssetRepository:
                 try:
                     day = date.fromisoformat(row["date"])
                     value = float(row[meta.field])
-                    if not pd.notna(value):
-                        raise ValueError("NaN")
+                    if not math.isfinite(value):
+                        raise ValueError("non-finite observation")
                 except (TypeError, ValueError):
                     invalid += 1
                     continue
@@ -68,15 +69,18 @@ class AssetRepository:
 
     def load_all(self) -> tuple[list[AssetSeries], DataQuality]:
         with self.catalog_path.open(encoding="utf-8-sig", newline="") as handle:
-            catalog_records = sum(1 for _ in csv.DictReader(handle))
+            catalog_rows = list(csv.DictReader(handle))
         available = self.catalog()
-        series = [self.load(meta) for meta in available]
+        loaded = [self.load(meta) for meta in available]
+        series = [item for item in loaded if not item.frame.empty]
+        available_codes = {meta.code for meta in available}
         quality = DataQuality(
-            catalog_records=catalog_records,
+            catalog_records=len(catalog_rows),
             available_assets=len(available),
             loaded_assets=len(series),
-            duplicate_dates=sum(item.duplicate_dates for item in series),
-            invalid_rows=sum(item.invalid_rows for item in series),
+            missing_assets=[row["名称"] for row in catalog_rows if row["Wind代码"] not in available_codes],
+            duplicate_dates=sum(item.duplicate_dates for item in loaded),
+            invalid_rows=sum(item.invalid_rows for item in loaded),
             total_rows=sum(len(item.frame) for item in series),
         )
         return series, quality

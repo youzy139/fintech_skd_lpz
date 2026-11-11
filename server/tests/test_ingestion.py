@@ -30,6 +30,29 @@ def test_load_all_deduplicates_and_reports_quality(tmp_path: Path):
     assert quality.loaded_assets == 1
     assert quality.duplicate_dates == 1
     assert quality.invalid_rows == 1
+    assert quality.missing_assets == ["缺失债券"]
+
+
+def test_nonfinite_observations_are_counted_and_excluded(tmp_path: Path):
+    data_root = make_dataset(tmp_path)
+    path = data_root / "目标资产价格变量" / "测试指数.csv"
+    path.write_text("date,close\n2024-01-01,inf\n2024-01-02,-inf\n2024-01-03,NaN\n2024-01-04,103\n", encoding="utf-8")
+    series, quality = AssetRepository(data_root).load_all()
+    assert list(series[0].frame["value"]) == [103.0]
+    assert quality.invalid_rows == 3
+    assert quality.total_rows == 1
+
+
+def test_empty_series_does_not_count_as_loaded(tmp_path: Path):
+    data_root = make_dataset(tmp_path)
+    path = data_root / "目标资产价格变量" / "测试指数.csv"
+    path.write_text("date,close\n2024-01-01,inf\n", encoding="utf-8")
+    series, quality = AssetRepository(data_root).load_all()
+    assert series == []
+    assert quality.available_assets == 1
+    assert quality.loaded_assets == 0
+    assert quality.invalid_rows == 1
+    assert quality.total_rows == 0
 
 
 def test_field_mismatch_is_not_silently_accepted(tmp_path: Path):
