@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import replace
+from dataclasses import asdict, replace
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -11,10 +11,12 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app.core.config import load_config
 from app.main import create_app
-from app.services.replay import ReplayDataCatalog
+from app.services.replay import ReplayDataCatalog, ReplayManager
 from app.services.replay_store import ReplayStore
 from market_core.models.replay import HistoricalMarketReplay
+from market_core.models.regime import LEGACY_IDENTITY, REGIME_IDENTITY
 from server.tests.test_replay import sample_series
+from server.tests.test_replay import MODEL_SETTINGS, ALERT_SETTINGS
 
 
 def configure(monkeypatch, database_path):
@@ -204,3 +206,56 @@ def test_legacy_non_finite_payloads_are_null_when_read(tmp_path):
     assert store.results("legacy")["results"][0]["result"]["features"]["momentum"] is None
     assert store.operation("legacy", "pause", "pause-1", {})["latest_result"]["features"]["correlation"] is None
     store.close()
+
+
+def test_legacy_session_resumes_with_original_identity_without_rewriting_results(tmp_path):
+    series = sample_series()
+    catalog = ReplayDataCatalog(series)
+    days = catalog.dates[45:48]
+    config = replace(load_config(), database_path=tmp_path / "legacy.db", model=MODEL_SETTINGS, alerts=ALERT_SETTINGS, replay={"interval_ms": 0})
+    store = ReplayStore(config.database_path)
+    legacy = HistoricalMarketReplay(series, {**MODEL_SETTINGS, "regime_identity": LEGACY_IDENTITY}, ALERT_SETTINGS, days[0])
+    first = asdict(legacy.advance(catalog.read(days[0])))
+    snapshot = {"id": "legacy", "mode": "local", "status": "paused", "start_date": days[0].isoformat(), "end_date": days[-1].isoformat(), "speed": 10, "processed_days": 1, "latest_sequence": 1, "run_id": "legacy-run", "latest_result": first}
+    store.record_result(snapshot, 1, first)
+    before = store.results("legacy")["results"][0]
+
+    async def scenario():
+        owner = ReplayManager(SimpleNamespace(series=series), config, store)
+        session = owner.get("legacy")
+        assert session.snapshot()["model_identity"] == LEGACY_IDENTITY
+        try:
+            await session.resume()
+            await asyncio.wait_for(session.task, timeout=10)
+            assert session.clock.status == "completed", session.clock.error
+            assert session.run_id == "legacy-run"
+            results = store.results("legacy")["results"]
+            assert results[0] == before
+            assert [item["sequence"] for item in results] == [1, 2, 3]
+            for item, day in zip(results[1:], days[1:]):
+                expected = asdict(legacy.advance(catalog.read(day)))
+                actual = dict(item["result"])
+                actual.pop("replay_time")
+                expected.pop("replay_time")
+                assert actual == json.loads(json.dumps(expected))
+                assert "regime_identity" not in actual["state"]
+        finally:
+            await owner.close()
+
+    asyncio.run(scenario())
+
+
+def test_new_session_identity_is_persisted_across_configuration_changes(tmp_path):
+    series = sample_series()
+    catalog = ReplayDataCatalog(series)
+    config = replace(load_config(), database_path=tmp_path / "identity.db", model=MODEL_SETTINGS)
+    owner = ReplayManager(SimpleNamespace(series=series), config)
+    created = owner.create(catalog.dates[45], catalog.dates[46], 10)
+    assert created["model_identity"] == REGIME_IDENTITY
+    asyncio.run(owner.close())
+    changed = replace(config, model={**MODEL_SETTINGS, "regime_identity": LEGACY_IDENTITY})
+    restored = ReplayManager(SimpleNamespace(series=series), changed)
+    assert restored.get(created["id"]).snapshot()["model_identity"] == REGIME_IDENTITY
+    engine = restored.get(created["id"])._build_engine()
+    assert engine.model_session.model.regime_identity == REGIME_IDENTITY
+    asyncio.run(restored.close())

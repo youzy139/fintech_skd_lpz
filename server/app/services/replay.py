@@ -22,6 +22,7 @@ from app.services.replay_store import ReplayStore
 from app.services.replay_capacity import ReplayLeaseLost, acquire, lease_call, serialized_control
 from market_core.domain.replay import AssetObservation, ReplayClock, ReplayDayInput, ReplayDayResult
 from market_core.models.replay import HistoricalMarketReplay
+from market_core.models.regime import LEGACY_IDENTITY, REGIME_IDENTITY
 
 replay_logger = logging.getLogger("marketlens.replay")
 
@@ -82,6 +83,7 @@ class ReplaySession:
         self.clock = ReplayClock(dates, speed)
         self.catalog = catalog
         self.config = config
+        self.model_identity = config.model.get("regime_identity", REGIME_IDENTITY)
         self.store = store
         self.engine: HistoricalMarketReplay | None = None
         self.pipeline = None
@@ -192,6 +194,7 @@ class ReplaySession:
             "flink_job_id": self.flink_job_id,
             "savepoint_path": self.savepoint_path,
             "mode": self.mode,
+            "model_identity": self.model_identity,
             "start_date": self.clock.dates[0].isoformat(),
             "end_date": self.clock.dates[-1].isoformat(),
             "status": self.clock.status,
@@ -231,6 +234,7 @@ class ReplaySession:
         self.store.save_operation(self.id, action, key, request or {}, self.snapshot(), self.owner_token)
 
     def restore(self, stored: dict[str, Any]) -> None:
+        self.model_identity = stored.get("model_identity", LEGACY_IDENTITY)
         self.run_id = stored.get("run_id")
         self.flink_job_id = stored.get("flink_job_id")
         self.savepoint_path = stored.get("savepoint_path")
@@ -392,7 +396,8 @@ class ReplaySession:
             return snapshot
 
     def _build_engine(self) -> HistoricalMarketReplay:
-        engine = HistoricalMarketReplay(self.catalog.series, self.config.model, self.config.alerts, self.clock.dates[0])
+        settings = {**self.config.model, "regime_identity": self.model_identity}
+        engine = HistoricalMarketReplay(self.catalog.series, settings, self.config.alerts, self.clock.dates[0])
         for event_date in self.clock.dates[:self.clock.position]:
             engine.advance(self.catalog.read(event_date))
         return engine

@@ -10,7 +10,7 @@ from market_core.domain.market import AssetSeries
 from market_core.domain.replay import ReplayDayInput, ReplayDayResult
 from market_core.models.alerts import generate_alerts
 from market_core.models.features import build_market_features
-from market_core.models.regime import WalkForwardRegimeModel, WalkForwardRegimeSession
+from market_core.models.regime import REGIME_IDENTITY, WalkForwardRegimeModel, WalkForwardRegimeSession
 
 
 class HistoricalMarketReplay:
@@ -30,6 +30,7 @@ class HistoricalMarketReplay:
             model_settings["refit_interval"],
             model_settings["cluster_count"],
             model_settings["random_seed"],
+            model_settings.get("regime_identity", REGIME_IDENTITY),
         )
         self.model_session = WalkForwardRegimeSession(model)
         self.states: list[dict] = []

@@ -1,0 +1,447 @@
+{
+  "audit": {
+    "generated_at": "2026-11-11T08:08:42.966309+00:00",
+    "source_sha256": {
+      "market_core/models/regime.py": "dc947201494418334d22c1cb39e3259de519cadaed3357b25e563a56ec1ce51f",
+      "market_core/models/alerts.py": "e5a46128deb420c0c1c96bc841d6e89b2c017992cd746e996180ed87d6a5f3e6",
+      "market_core/models/features.py": "6f75643c43803f219a684c3f0ccbc0e5b1c4afa618651c4444a5cd34502b48aa"
+    },
+    "feature_sha256": "86eadf475ece758f85d0f75f6c94a77f25683d3efed025fd4dc9f9a0dbab899b",
+    "model_settings": {
+      "analysis_start": "2015-01-01",
+      "minimum_history": 504,
+      "training_window": 756,
+      "refit_interval": 63,
+      "volatility_window": 20,
+      "momentum_window": 60,
+      "cluster_count": 3,
+      "random_seed": 42
+    },
+    "alert_settings": {
+      "volatility_quantile": 0.9,
+      "correlation_quantile": 0.9
+    },
+    "quality": {
+      "catalog_records": 40,
+      "available_assets": 39,
+      "loaded_assets": 39,
+      "missing_assets": [
+        "全球高收益债"
+      ],
+      "duplicate_dates": 0,
+      "invalid_rows": 0,
+      "total_rows": 314318
+    },
+    "feature_days": 3844,
+    "state_days": 3340,
+    "first_state": "2016-12-09",
+    "last_state": "2026-04-30",
+    "refit_boundaries": 53,
+    "old_alerts": {
+      "REGIME_CHANGE": 525,
+      "HIGH_CORRELATION": 360,
+      "HIGH_VOLATILITY": 242
+    },
+    "new_alerts": {
+      "HIGH_CORRELATION": 360,
+      "HIGH_VOLATILITY": 242,
+      "REGIME_CHANGE": 500
+    },
+    "removed_change_dates": [
+      "2017-03-08",
+      "2017-08-31",
+      "2018-01-18",
+      "2018-05-24",
+      "2018-07-26",
+      "2019-04-04",
+      "2019-06-06",
+      "2019-10-10",
+      "2020-08-20",
+      "2020-10-22",
+      "2020-12-24",
+      "2021-02-25",
+      "2021-04-29",
+      "2021-07-01",
+      "2021-11-04",
+      "2022-01-06",
+      "2023-01-19",
+      "2023-05-25",
+      "2023-07-27",
+      "2023-09-28",
+      "2023-11-30",
+      "2024-02-01",
+      "2024-04-04",
+      "2025-02-13",
+      "2025-10-23",
+      "2025-12-25",
+      "2026-02-26"
+    ],
+    "added_change_dates": [
+      "2020-02-13",
+      "2025-04-17"
+    ],
+    "differences": [
+      {
+        "date": "2017-03-08",
+        "refit": true,
+        "old_previous": "趋势上涨 · C1",
+        "old_current": "趋势上涨 · C0",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2017-08-31",
+        "refit": true,
+        "old_previous": "趋势上涨 · C0",
+        "old_current": "趋势上涨 · C2",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2018-01-18",
+        "refit": true,
+        "old_previous": "趋势上涨 · C2",
+        "old_current": "趋势上涨 · C1",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2018-05-24",
+        "refit": true,
+        "old_previous": "震荡平衡 · C1",
+        "old_current": "震荡平衡 · C2",
+        "new_previous": "震荡平衡 · C0",
+        "new_current": "震荡平衡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2018-07-26",
+        "refit": true,
+        "old_previous": "下跌承压 · C0",
+        "old_current": "下跌承压 · C1",
+        "new_previous": "下跌承压 · C2",
+        "new_current": "下跌承压 · C2",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2019-04-04",
+        "refit": true,
+        "old_previous": "震荡平衡 · C2",
+        "old_current": "震荡平衡 · C0",
+        "new_previous": "震荡平衡 · C0",
+        "new_current": "震荡平衡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2019-06-06",
+        "refit": true,
+        "old_previous": "趋势上涨 · C1",
+        "old_current": "趋势上涨 · C2",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2019-10-10",
+        "refit": true,
+        "old_previous": "震荡平衡 · C0",
+        "old_current": "震荡平衡 · C2",
+        "new_previous": "震荡平衡 · C0",
+        "new_current": "震荡平衡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2020-02-13",
+        "refit": true,
+        "old_previous": "震荡平衡 · C0",
+        "old_current": "震荡平衡 · C0",
+        "new_previous": "震荡平衡 · C0",
+        "new_current": "震荡平衡 · C1",
+        "old_alert": false,
+        "new_alert": true
+      },
+      {
+        "date": "2020-08-20",
+        "refit": true,
+        "old_previous": "震荡平衡 · C1",
+        "old_current": "震荡平衡 · C0",
+        "new_previous": "震荡平衡 · C0",
+        "new_current": "震荡平衡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2020-10-22",
+        "refit": true,
+        "old_previous": "震荡平衡 · C0",
+        "old_current": "震荡平衡 · C1",
+        "new_previous": "震荡平衡 · C0",
+        "new_current": "震荡平衡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2020-12-24",
+        "refit": true,
+        "old_previous": "趋势上涨 · C0",
+        "old_current": "趋势上涨 · C2",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2021-02-25",
+        "refit": true,
+        "old_previous": "趋势上涨 · C2",
+        "old_current": "趋势上涨 · C0",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2021-04-29",
+        "refit": true,
+        "old_previous": "高波动避险 · C1",
+        "old_current": "高波动避险 · C2",
+        "new_previous": "高波动避险 · C2",
+        "new_current": "高波动避险 · C2",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2021-07-01",
+        "refit": true,
+        "old_previous": "高波动避险 · C2",
+        "old_current": "高波动避险 · C0",
+        "new_previous": "高波动避险 · C2",
+        "new_current": "高波动避险 · C2",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2021-11-04",
+        "refit": true,
+        "old_previous": "震荡平衡 · C1",
+        "old_current": "震荡平衡 · C0",
+        "new_previous": "震荡平衡 · C0",
+        "new_current": "震荡平衡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2022-01-06",
+        "refit": true,
+        "old_previous": "震荡平衡 · C0",
+        "old_current": "震荡平衡 · C1",
+        "new_previous": "震荡平衡 · C0",
+        "new_current": "震荡平衡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2023-01-19",
+        "refit": true,
+        "old_previous": "趋势上涨 · C1",
+        "old_current": "趋势上涨 · C2",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2023-05-25",
+        "refit": true,
+        "old_previous": "联动震荡 · C1",
+        "old_current": "联动震荡 · C2",
+        "new_previous": "联动震荡 · C0",
+        "new_current": "联动震荡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2023-07-27",
+        "refit": true,
+        "old_previous": "联动震荡 · C2",
+        "old_current": "联动震荡 · C1",
+        "new_previous": "联动震荡 · C0",
+        "new_current": "联动震荡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2023-09-28",
+        "refit": true,
+        "old_previous": "联动震荡 · C1",
+        "old_current": "联动震荡 · C0",
+        "new_previous": "联动震荡 · C0",
+        "new_current": "联动震荡 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2023-11-30",
+        "refit": true,
+        "old_previous": "趋势上涨 · C2",
+        "old_current": "趋势上涨 · C0",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2024-02-01",
+        "refit": true,
+        "old_previous": "趋势上涨 · C0",
+        "old_current": "趋势上涨 · C2",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2024-04-04",
+        "refit": true,
+        "old_previous": "趋势上涨 · C2",
+        "old_current": "趋势上涨 · C0",
+        "new_previous": "趋势上涨 · C1",
+        "new_current": "趋势上涨 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2025-02-13",
+        "refit": true,
+        "old_previous": "震荡平衡 · C0",
+        "old_current": "震荡平衡 · C2",
+        "new_previous": "震荡平衡 · C1",
+        "new_current": "震荡平衡 · C1",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2025-04-17",
+        "refit": true,
+        "old_previous": "下跌承压 · C1",
+        "old_current": "下跌承压 · C1",
+        "new_previous": "下跌承压 · C0",
+        "new_current": "下跌承压 · C2",
+        "old_alert": false,
+        "new_alert": true
+      },
+      {
+        "date": "2025-10-23",
+        "refit": true,
+        "old_previous": "下跌承压 · C0",
+        "old_current": "下跌承压 · C1",
+        "new_previous": "下跌承压 · C0",
+        "new_current": "下跌承压 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2025-12-25",
+        "refit": true,
+        "old_previous": "下跌承压 · C1",
+        "old_current": "下跌承压 · C0",
+        "new_previous": "下跌承压 · C0",
+        "new_current": "下跌承压 · C0",
+        "old_alert": true,
+        "new_alert": false
+      },
+      {
+        "date": "2026-02-26",
+        "refit": true,
+        "old_previous": "下跌承压 · C0",
+        "old_current": "下跌承压 · C2",
+        "new_previous": "下跌承压 · C0",
+        "new_current": "下跌承压 · C0",
+        "old_alert": true,
+        "new_alert": false
+      }
+    ],
+    "checks": {
+      "numerical_results_unchanged": true,
+      "quantile_alerts_unchanged": true,
+      "differences_only_at_refit": true
+    },
+    "limitations": "中心匹配只修正局部编号身份；新增/减少切换不是金融事件准确率或误报率的证明。"
+  },
+  "channels": {
+    "passed": true,
+    "data": "synthetic-only",
+    "days": [
+      "2020-06-29",
+      "2020-06-30",
+      "2020-07-01",
+      "2020-07-02"
+    ],
+    "model_settings": {
+      "analysis_start": "2020-01-01",
+      "minimum_history": 60,
+      "training_window": 120,
+      "refit_interval": 3,
+      "volatility_window": 20,
+      "momentum_window": 60,
+      "cluster_count": 3,
+      "random_seed": 42
+    },
+    "limitation": "四日正确性与实际通道验收，不是性能或故障恢复报告。",
+    "results": {
+      "local": {
+        "days": 4,
+        "stats": {
+          "produced_events": 4,
+          "consumed_events": 4,
+          "duplicate_events": 0,
+          "retry_count": 0,
+          "commit_count": 4
+        },
+        "savepoint_created": false
+      },
+      "kafka": {
+        "days": 4,
+        "stats": {
+          "produced_events": 4,
+          "consumed_events": 4,
+          "duplicate_events": 0,
+          "retry_count": 0,
+          "commit_count": 4
+        },
+        "savepoint_created": false
+      },
+      "flink": {
+        "days": 4,
+        "stats": {
+          "produced_events": 4,
+          "consumed_events": 4,
+          "duplicate_events": 0,
+          "retry_count": 0,
+          "commit_count": 4,
+          "stale_jobs_stopped": 0
+        },
+        "savepoint_created": true
+      }
+    }
+  },
+  "raw_report_sha256": {
+    "regime-identity.json": "94322ca13e8c837566ffb6ad8c651cfac32c51cc90b20a87a2207d040955ace9",
+    "regime-identity-channels.json": "25cf8e99dd75174b6d9b2e32b097688e2e504a07c2a9a03bce75f19f5a054856"
+  },
+  "environment": {
+    "python": "3.12.15",
+    "platform": "Windows-11-10.0.26300-SP0"
+  }
+}

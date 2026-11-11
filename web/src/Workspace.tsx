@@ -44,7 +44,7 @@ export default function Workspace({ page, onNavigate, latest, alertCount, childr
       <div className="sidebar-foot"><span className="history-dot" />历史数据研究环境<small>事件时间驱动 · 非实时行情</small></div>
     </aside>
     <main className="main" id="workspace-content" tabIndex={-1}>
-      <div className="workspace-topline"><button className="mobile-menu" aria-label="打开导航" aria-expanded={menu} onClick={() => setMenu(!menu)}><Icon name="menu" /></button><span>MarketLens <i>/</i> {current[1]}</span><span className="environment-label">RESEARCH · v0.3.4</span></div>
+      <div className="workspace-topline"><button className="mobile-menu" aria-label="打开导航" aria-expanded={menu} onClick={() => setMenu(!menu)}><Icon name="menu" /></button><span>MarketLens <i>/</i> {current[1]}</span><span className="environment-label">RESEARCH · v0.3.5</span></div>
       <div className="market-context" aria-label="市场环境摘要">
         {latest ? <><span className="context-state"><i />{latest.label}</span><span>年化波动 <b>{percent(latest.features.volatility)}</b></span><span>中期动量 <b className={directionTone(latest.features.momentum)}>{percent(latest.features.momentum)}</b></span><span>资产相关性 <b>{numeric(latest.features.correlation, 3)}</b></span><span className="context-date">观测日 <b>{latest.date}</b></span></> : <span className="context-state"><i />多源数据与研究环境</span>}
         <span className="context-warning">历史观测 · 非实时行情</span>

@@ -2,6 +2,8 @@
 
 核查日期：2026-11-11。以下记录已实现结构；连线表示应用逻辑关联，不代表跨库外键或分布式事务。实体字段为关键字段摘录，完整 schema 以迁移文件及 Store 初始化代码为准。
 
+`v0.3.5` 状态身份变更：状态 JSON 新增 `regime_id`、`regime_identity`，原 `cluster` 仍是局部簇编号；模型版本前缀区分新旧算法。回放会话快照 JSON 新增 `model_identity`，无需改表；旧快照缺字段时采用 `local-cluster-v1`，新建默认 `centroid-alignment-v1`。已有 `result_json` 不迁移或改写，前端兼容缺少新字段的历史结果。详见 [字段与兼容约定](v0.3.5-regime-identity.md#api-与持久化兼容)。
+
 ## 数据目录与原始血缘
 
 ```mermaid

@@ -123,7 +123,7 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
                 if app.state.alert_service is not None:
                     app.state.alert_service.close()
 
-    app = FastAPI(title=title, version="0.3.4", lifespan=lifespan)
+    app = FastAPI(title=title, version="0.3.5", lifespan=lifespan)
     install_governance(app, config, service_name)
     install_auth(app, config.cors_origins)
     app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])

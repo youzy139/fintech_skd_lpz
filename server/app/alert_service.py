@@ -39,7 +39,7 @@ def create_alert_app(service: AlertService | None = None, initialize: bool = Tru
             if service is None:
                 app.state.service.close()
 
-    app = FastAPI(title="MarketLens 预警服务", version="0.3.4", lifespan=lifespan)
+    app = FastAPI(title="MarketLens 预警服务", version="0.3.5", lifespan=lifespan)
     install_governance(app, config, "marketlens-alert")
     install_auth(app, config.cors_origins)
     app.state.metrics = RequestMetrics()

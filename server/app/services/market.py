@@ -13,7 +13,7 @@ from market_core.domain.market import AssetSeries
 from market_core.ingestion.assets import AssetRepository
 from market_core.models.alerts import alert_evidence, generate_alerts
 from market_core.models.features import build_market_features
-from market_core.models.regime import WalkForwardRegimeModel
+from market_core.models.regime import REGIME_IDENTITY, WalkForwardRegimeModel
 
 
 class MarketService:
@@ -35,7 +35,7 @@ class MarketService:
             raise RuntimeError("没有可用资产数据")
         settings = self.config.model
         features = build_market_features(self.series, settings["volatility_window"], settings["momentum_window"], settings["analysis_start"])
-        model = WalkForwardRegimeModel(settings["minimum_history"], settings["training_window"], settings["refit_interval"], settings["cluster_count"], settings["random_seed"])
+        model = WalkForwardRegimeModel(settings["minimum_history"], settings["training_window"], settings["refit_interval"], settings["cluster_count"], settings["random_seed"], settings.get("regime_identity", REGIME_IDENTITY))
         self.states = model.predict(features)
         self.rebuild_alerts()
         self.quality = {**asdict(quality), "sources": self.catalog.summary()}
