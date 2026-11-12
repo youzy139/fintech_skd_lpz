@@ -165,6 +165,11 @@ describe('ReplayCenter', () => {
   })
 
   it('creates a Flink-mode replay when the window channel is selected', async () => {
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!
+    let resolveCreation!: (response: Response) => void
+    vi.mocked(fetch).mockImplementation((...args) => String(args[0]) === '/api/replay/sessions'
+      ? new Promise<Response>(resolve => { resolveCreation = resolve })
+      : originalFetch(...args))
     render(<ReplayCenter />)
     const channel = await screen.findByRole('combobox', { name: '回放通道' })
     await waitFor(() => expect(channel).toBeEnabled())
@@ -176,6 +181,9 @@ describe('ReplayCenter', () => {
       expect(creation).toBeDefined()
       expect(JSON.parse(String(creation?.[1]?.body))).toMatchObject({ mode: 'flink', start_date: '2024-03-04', end_date: '2024-03-06' })
     })
+    expect(MockWebSocket.instances).toHaveLength(0)
+    await act(async () => resolveCreation({ ok: true, json: async () => ({ ...session, mode: 'flink', status: 'pending' }) } as Response))
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
     act(() => MockWebSocket.instances[0].emit({
       type: 'replay_status',
       session: { ...session, mode: 'flink', flink_job_id: 'job-1', savepoint_path: 'file:///savepoints/savepoint-1', event_stats: { ...session.event_stats, stale_jobs_stopped: 1 }, timing: { ...session.timing, pipeline: { stale_job_stop_ms: 800, job_start_ms: 5000, job_stop_ms: 1200 } } },
