@@ -8,10 +8,13 @@ from app.core.serialization import json_compatible
 from app.services.alert_rules import AlertRuleManager
 from app.services.catalog_factory import create_catalog_reader
 from app.services.context_evidence import attach_context
+from app.services.cache import RedisJsonCache
+from app.services.feature_cache import FeatureSnapshotCache
 from app.services.storage import SnapshotStore
 from market_core.domain.market import AssetSeries
 from market_core.ingestion.assets import AssetRepository
 from market_core.models.alerts import alert_evidence, generate_alerts
+from market_core.models.feature_contracts import feature_contract, market_input_version, model_parameters
 from market_core.models.features import build_market_features
 from market_core.models.regime import REGIME_IDENTITY, WalkForwardRegimeModel
 
@@ -24,6 +27,9 @@ class MarketService:
         self.states: list[dict] = []
         self.alerts: list[dict] = []
         self.quality: dict = {}
+        self._feature_metadata: dict[str, Any] = {}
+        self._feature_cache = RedisJsonCache.from_config({**config.redis, "namespace": config.redis["namespace"] + ":features:latest:v1"}) if config.redis["enabled"] else None
+        self._feature_snapshot: FeatureSnapshotCache | None = None
         self.store = SnapshotStore(config.database_path)
         self.storage_mode = config.storage_mode
         self.catalog = create_catalog_reader(config)
@@ -37,6 +43,14 @@ class MarketService:
         features = build_market_features(self.series, settings["volatility_window"], settings["momentum_window"], settings["analysis_start"])
         model = WalkForwardRegimeModel(settings["minimum_history"], settings["training_window"], settings["refit_interval"], settings["cluster_count"], settings["random_seed"], settings.get("regime_identity", REGIME_IDENTITY))
         self.states = model.predict(features)
+        self._feature_metadata = {
+            "feature_contract": feature_contract(settings),
+            "model_parameters": model_parameters(settings),
+            "data_version": self.catalog.data_version(),
+            "input_version": market_input_version(self.series),
+            "state_model_version": self.states[-1]["model_version"] if self.states else None,
+        }
+        self._feature_snapshot = FeatureSnapshotCache(self._feature_metadata, self.latest_state(), self._feature_cache) if self.states else None
         self.rebuild_alerts()
         self.quality = {**asdict(quality), "sources": self.catalog.summary()}
         self.store.save("quality", self.quality)
@@ -80,6 +94,21 @@ class MarketService:
         if not self.states:
             raise RuntimeError("状态模型尚未初始化")
         return self.states[-1]
+
+    def feature_metadata(self) -> dict[str, Any]:
+        if not self._feature_metadata:
+            raise RuntimeError("特征元数据尚未初始化")
+        return json_compatible(self._feature_metadata)
+
+    def latest_features(self) -> dict[str, Any]:
+        if self._feature_snapshot is None:
+            raise RuntimeError("特征尚未初始化")
+        return self._feature_snapshot.read()
+
+    def feature_cache_status(self) -> dict[str, Any]:
+        if self._feature_snapshot is None:
+            return {"enabled": self._feature_cache is not None, "status": "uninitialized"}
+        return self._feature_snapshot.status()
 
     def alert_states(self) -> list[dict[str, Any]]:
         return json_compatible(self.states)
@@ -127,3 +156,5 @@ class MarketService:
     def close(self) -> None:
         self.store.close()
         self.catalog.close()
+        if self._feature_cache is not None:
+            self._feature_cache.close()

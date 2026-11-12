@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import date
 from time import monotonic
@@ -23,6 +24,7 @@ from app.services.replay_capacity import ReplayLeaseLost, acquire, lease_call, s
 from market_core.domain.replay import AssetObservation, ReplayClock, ReplayDayInput, ReplayDayResult
 from market_core.models.replay import HistoricalMarketReplay
 from market_core.models.regime import LEGACY_IDENTITY, REGIME_IDENTITY
+from market_core.models.feature_contracts import content_version, feature_contract, market_input_version, model_parameters
 
 replay_logger = logging.getLogger("marketlens.replay")
 
@@ -51,6 +53,12 @@ class ReplayDataCatalog:
     def __init__(self, series):
         self.series = series
         self.dates = tuple(sorted({day.date() for item in series for day in item.frame["date"]}))
+        self.input_versions: dict[date, str] = {}
+
+    def input_version(self, through: date) -> str:
+        if through not in self.input_versions:
+            self.input_versions[through] = market_input_version(self.series, through)
+        return self.input_versions[through]
 
     def calendar(self) -> dict[str, Any]:
         if not self.dates:
@@ -84,6 +92,7 @@ class ReplaySession:
         self.catalog = catalog
         self.config = config
         self.model_identity = config.model.get("regime_identity", REGIME_IDENTITY)
+        self.calculation_contract = None
         self.store = store
         self.engine: HistoricalMarketReplay | None = None
         self.pipeline = None
@@ -195,6 +204,8 @@ class ReplaySession:
             "savepoint_path": self.savepoint_path,
             "mode": self.mode,
             "model_identity": self.model_identity,
+            "calculation_contract": deepcopy(self.calculation_contract),
+            "lineage_status": "pinned" if self.calculation_contract else "legacy-unpinned",
             "start_date": self.clock.dates[0].isoformat(),
             "end_date": self.clock.dates[-1].isoformat(),
             "status": self.clock.status,
@@ -235,6 +246,7 @@ class ReplaySession:
 
     def restore(self, stored: dict[str, Any]) -> None:
         self.model_identity = stored.get("model_identity", LEGACY_IDENTITY)
+        self.calculation_contract = deepcopy(stored.get("calculation_contract"))
         self.run_id = stored.get("run_id")
         self.flink_job_id = stored.get("flink_job_id")
         self.savepoint_path = stored.get("savepoint_path")
@@ -395,9 +407,36 @@ class ReplaySession:
             self.save_operation("restart", idempotency_key)
             return snapshot
 
+    def pin_calculation(self) -> None:
+        model = model_parameters(self.config.model)
+        # Replay v1 historically uses these two quantiles and rule defaults.
+        alerts = {name: float(self.config.alerts[name]) for name in ("volatility_quantile", "correlation_quantile")}
+        payload = {
+            "schema_version": 1,
+            "model": model,
+            "alerts": alerts,
+            "feature_contract": feature_contract(model),
+            "input_version": self.catalog.input_version(self.clock.dates[-1]),
+            "input_through": self.clock.dates[-1].isoformat(),
+        }
+        self.calculation_contract = {**payload, "version": content_version("calculation-", payload)}
+
     def _build_engine(self) -> HistoricalMarketReplay:
-        settings = {**self.config.model, "regime_identity": self.model_identity}
-        engine = HistoricalMarketReplay(self.catalog.series, settings, self.config.alerts, self.clock.dates[0])
+        if self.calculation_contract:
+            contract = self.calculation_contract
+            payload = {key: value for key, value in contract.items() if key != "version"}
+            if contract.get("schema_version") != 1 or contract.get("version") != content_version("calculation-", payload):
+                raise ValueError("回放计算契约校验失败，请创建新会话")
+            settings = deepcopy(contract["model"])
+            if settings.get("regime_identity") != self.model_identity or feature_contract(settings) != contract["feature_contract"]:
+                raise ValueError("回放特征或身份算法契约已改变，请使用兼容版本或创建新会话")
+            if contract["input_through"] != self.clock.dates[-1].isoformat() or contract["input_version"] != self.catalog.input_version(self.clock.dates[-1]):
+                raise ValueError("回放输入已改变，拒绝混合历史结果；请创建新会话")
+            alerts = deepcopy(contract["alerts"])
+        else:
+            settings = {**self.config.model, "regime_identity": self.model_identity}
+            alerts = self.config.alerts
+        engine = HistoricalMarketReplay(self.catalog.series, settings, alerts, self.clock.dates[0])
         for event_date in self.clock.dates[:self.clock.position]:
             engine.advance(self.catalog.read(event_date))
         return engine
@@ -641,6 +680,7 @@ class ReplayManager:
         session_id = uuid4().hex[:12]
         session = ReplaySession(session_id, dates, speed, self.catalog, self.config, self.store, mode, self.capacity)
         session.clock.set_speed(speed)
+        session.pin_calculation()
         self.sessions[session_id] = session
         self.current_id = session_id
         snapshot = session.snapshot()

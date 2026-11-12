@@ -39,10 +39,14 @@ def alert_states(request: Request):
     return current_service(request).alert_states()
 
 
+@router.get("/api/features/metadata")
+def feature_metadata(request: Request):
+    return current_service(request).feature_metadata()
+
+
 @router.get("/api/features/latest")
 def latest_features(request: Request):
-    state = current_service(request).latest_state()
-    return {"date": state["date"], "features": state["features"], "contributions": state["contributions"], "model_version": state["model_version"]}
+    return current_service(request).latest_features()
 
 
 @router.get("/api/alerts")

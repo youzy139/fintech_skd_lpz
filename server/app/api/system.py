@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -44,6 +46,11 @@ async def metrics(request: Request):
     return {**request.app.state.metrics.snapshot(), **current_service(request).replay_metrics()}
 
 
+@router.get("/api/system/feature-cache")
+def feature_cache(request: Request):
+    return current_service(request).feature_cache_status()
+
+
 @router.get("/api/system/dependencies")
 async def dependencies(request: Request):
     report = await DependencyMonitor(load_config()).snapshot()
@@ -51,4 +58,10 @@ async def dependencies(request: Request):
     cache_stats = getattr(getattr(current_service(request), "catalog", None), "cache_stats", None)
     if cache_stats is not None:
         report["catalog_cache"] = cache_stats
+    feature_status = getattr(current_service(request), "feature_cache_status", None)
+    if feature_status is not None:
+        try:
+            report["feature_cache"] = await asyncio.to_thread(feature_status)
+        except Exception:
+            report["feature_cache"] = {"status": "unavailable"}
     return report

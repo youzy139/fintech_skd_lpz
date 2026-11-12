@@ -86,11 +86,15 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     bootstrap(client, code)
     observer = bearer(create_user(store))
     assert client.get("/api/assets", headers=observer).status_code == 200
+    assert client.get("/api/features/metadata", headers=observer).status_code == 200
+    assert client.get("/api/features/latest", headers=observer).status_code == 200
     assert client.get("/api/data/records", headers=observer).status_code == 200
     assert client.post("/api/replay/sessions", json={"start_date": "2024-01-01", "end_date": "2024-01-02"}, headers=observer).status_code == 403
     assert client.get("/api/auth/users", headers=observer).status_code == 403
     assert client.get("/api/system/metrics", headers=observer).status_code == 403
     assert client.get("/api/system/dependencies", headers=observer).status_code == 403
+    assert client.get("/api/system/feature-cache", headers=observer).status_code == 403
+    assert client.get("/api/system/feature-cache").status_code == 200
     assert client.put("/api/alert-rules", json={}, headers=observer).status_code == 403
     market = bearer(create_user(store, "market-user", domains=("market",)))
     assert client.get("/api/data/records", headers=market).status_code == 403
@@ -101,6 +105,8 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     assert result.json()["errors"][0]["message"] == "没有访问此数据范围的权限"
     catalog = bearer(create_user(store, "catalog-user", domains=("catalog",)))
     assert client.get("/api/assets", headers=catalog).status_code == 403
+    assert client.get("/api/features/metadata", headers=catalog).status_code == 403
+    assert client.get("/api/features/latest", headers=catalog).status_code == 403
     assert client.get("/api/data/records", headers=catalog).status_code == 200
     assert client.post("/graphql", json={"query": "{ sourceSummary }"}, headers=catalog).json()["data"]["sourceSummary"]["total_records"] == 2
     analyst = bearer(create_user(store, "analyst", "analyst"))

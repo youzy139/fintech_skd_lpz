@@ -305,7 +305,7 @@ tbody tr:hover { background: #fbf7f7; }
 .alert-level.high { background: #f9e3e4; color: var(--accent); }
 .rule-label { color: #59636e; }
 .alert-table.compact td { padding-top: 8px; padding-bottom: 8px; }
-.feature-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; }
+.feature-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; align-items: start; }
 .feature-workspace .panel { margin-bottom: 12px; }
 .glossary p { display: grid; grid-template-columns: 70px 1fr; gap: 10px; margin: 0; padding: 10px 0; border-bottom: 1px solid #edf0f2; color: var(--muted); font-size: 10px; }
 .glossary p:last-child { border-bottom: 0; }
@@ -655,3 +655,5 @@ summary { color: #596571; cursor: pointer; font-size: 11px; line-height: 1.7; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
 }
+.contract-versions dd { margin: 4px 0 12px; overflow-wrap: anywhere; }
+.feature-glossary small { display: block; grid-column: 1 / -1; color: #627080; }

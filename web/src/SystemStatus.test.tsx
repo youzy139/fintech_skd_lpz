@@ -39,3 +39,13 @@ it('separates local and Redis cache responsibilities using data-service statisti
   expect(screen.getByText('Redis 二级缓存')).toBeInTheDocument()
   expect(screen.getByText('8/128 项 · 淘汰 2 · 过期 1')).toBeInTheDocument()
 })
+
+it('shows validated feature-cache hits and authoritative fallback separately', async () => {
+  const feature_cache = { enabled: true, date: '2024-05-01', validated_hits: 9, fallbacks: 3, rejected: 1, shared: { errors: 2, ttl_seconds: 60, circuit: report.governance.circuit } }
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ ...report, feature_cache }) })))
+  render(<SystemStatus />)
+  expect(await screen.findByText('热特征缓存')).toBeInTheDocument()
+  expect(screen.getByText('有效命中')).toBeInTheDocument()
+  expect(screen.getByText('无效缓存 1 次')).toBeInTheDocument()
+  expect(screen.getByText('TTL 60s')).toBeInTheDocument()
+})

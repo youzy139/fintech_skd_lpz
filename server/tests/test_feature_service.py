@@ -46,6 +46,7 @@ def remote_service_stub():
         health_details=lambda: {"storage_mode": "distributed", "assets": 1, "states": 1},
         market_readiness=lambda: {"status": "ok", "assets": 1, "states": 1},
         replay_metrics=lambda: {"replay_sessions": 2, "active_replays": 1},
+        feature_cache_status=lambda: {"enabled": True, "validated_hits": 7},
         source_summary=lambda: {"total_files": 1, "imported_files": 1, "total_records": 2, "errors": 0, "groups": []},
         data_version=lambda: "version-1",
         close=lambda: None,
@@ -76,6 +77,9 @@ def test_remote_mode_proxies_market_and_replay_contracts(monkeypatch):
         assert created.status_code == 201
         assert created.json()["id"] == "session-1"
         assert http.app.state.replays is None
+        metadata = http.get("/api/features/metadata")
+        assert metadata.status_code == 200
+        assert calls[-1][0].full_url == "http://feature-service:8000/api/features/metadata"
 
     get_request, timeout = calls[0]
     assert urlsplit(get_request.full_url).query == "start=2024-01-01&limit=1"
@@ -103,6 +107,7 @@ def test_remote_mode_preserves_upstream_errors_and_graphql(monkeypatch):
         }
         assert http.get("/api/health").json()["assets"] == 1
         assert http.get("/api/system/metrics").json()["replay_sessions"] == 2
+        assert http.get("/api/system/feature-cache").json()["validated_hits"] == 7
         schema = http.get("/openapi.json").json()
         assert {"/api/regimes", "/api/replay/sessions", "/api/data/summary"} <= set(schema["paths"])
 

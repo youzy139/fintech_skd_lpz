@@ -51,6 +51,9 @@ class RemoteFeatureService:
     def latest_state(self) -> dict[str, Any]:
         return self.feature.get("/api/regimes/latest")
 
+    def feature_cache_status(self) -> dict[str, Any]:
+        return self.feature.get("/api/system/feature-cache")
+
     def health_details(self) -> dict[str, Any]:
         health = self.feature.get("/api/health")
         return {"storage_mode": health["storage_mode"], "assets": health["assets"], "states": health["states"]}
