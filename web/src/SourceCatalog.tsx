@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import Chart from './Chart'
+import SourceGovernance from './SourceGovernance'
 import { api } from './api'
 import { chartColors } from './chartTheme'
 import { ErrorMessage, Metric, Panel } from './ui'
@@ -107,6 +108,7 @@ export default function SourceCatalog() {
     {error && <ErrorMessage message={error} onRetry={() => { setError(''); setAttempt(value => value + 1) }} retryLabel="重试数据查询" />}
     <div className="metrics"><Metric label="数据包文件" value={summary?.total_files.toLocaleString() ?? '—'} detail="全部原始输入文件" /><Metric label="已入库文件" value={summary?.imported_files.toLocaleString() ?? '—'} detail="当前目录服务的持久化记录" /><Metric label="逻辑记录" value={summary?.total_records.toLocaleString() ?? '—'} detail="文件中的数据行，不是物理行数" /><Metric label="导入异常" value={summary?.errors ?? '—'} detail="文件级导入错误" featured={Boolean(summary?.errors)} /></div>
     <p className="catalog-note">页面只加载当前概览和当前页，不会把整库发送到浏览器；文件数、逻辑记录数与有效行情数分别统计。</p>
+    <SourceGovernance kind={kind} />
     <div className="source-groups"><button className={!kind ? 'active' : ''} onClick={() => selectKind('')}><span>全部类型</span><b>{summary?.total_files.toLocaleString() ?? '—'} 个文件</b><small>{summary?.total_records.toLocaleString() ?? '—'} 条记录</small></button>{summary?.groups.map(group => <button key={group.kind} className={kind === group.kind ? 'active' : ''} onClick={() => selectKind(group.kind)}><span>{kindNames[group.kind] ?? group.kind}</span><b>{group.files.toLocaleString()} 个文件</b><small>{group.records.toLocaleString()} 条记录</small></button>)}</div>
     <section className="dataset-heading"><div><span>DATASET OVERVIEW</span><h2>{kindNames[kind] ?? '全部数据'}</h2><p>{kindDescriptions[kind] ?? '统一查看八类数据的覆盖范围与内容。记录量用于核对数据接入，不代表市场涨跌或风险水平。'}</p></div><b>按需查询</b></section>
     <div className="metrics dataset-metrics"><Metric label="当前记录" value={overview?.records.toLocaleString() ?? '—'} detail="当前筛选类型" /><Metric label="来源文件" value={overview?.files.toLocaleString() ?? '—'} detail="独立原始文件" /><Metric label="时间覆盖" value={<span className="date-range">{dateRange}</span>} detail="按数据自身事件日期" /><Metric label="无日期记录" value={overview?.undated_records.toLocaleString() ?? '—'} detail="不参与日期趋势统计" /></div>

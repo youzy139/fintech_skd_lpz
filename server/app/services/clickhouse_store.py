@@ -175,6 +175,11 @@ class ClickHouseCatalogStore:
         return {"total_files": int(row[0]), "imported_files": int(row[1]), "total_records": int(row[2]), "errors": int(row[3]), "groups": [{"kind": item[0], "files": int(item[1]), "records": int(item[2])} for item in groups]}
 
     @synchronized
+    def governance(self, kind: str | None) -> dict[str, Any]:
+        from app.services.source_governance import governance_report
+        return governance_report(self, kind)
+
+    @synchronized
     def overview(self, kind: str | None) -> dict[str, Any]:
         params = Parameters()
         where = f"WHERE kind = {params.add(kind)}" if kind else ""

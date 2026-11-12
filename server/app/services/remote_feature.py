@@ -74,6 +74,9 @@ class RemoteFeatureService:
     def source_overview(self, kind: str | None) -> dict[str, Any]:
         return self.catalog.overview(kind)
 
+    def source_governance(self, kind: str | None) -> dict[str, Any]:
+        return self.catalog.governance(kind)
+
     def source_tags(self, kind: str | None) -> list[dict[str, Any]]:
         return self.catalog.list_tags(kind)
 

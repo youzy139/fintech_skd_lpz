@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query as QueryParam, Request
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException, Query as QueryParam, Request
 
 from app.api.dependencies import current_service
+from app.services.remote_catalog import DataServiceError
 
 router = APIRouter(tags=["data"])
 
@@ -25,6 +28,14 @@ def source_overview(request: Request, kind: str | None = None):
 @router.get("/api/data/tags")
 def source_tags(request: Request, kind: str | None = None):
     return current_service(request).source_tags(kind)
+
+
+@router.get("/api/data/governance")
+def source_governance(request: Request, kind: Literal["asset", "calendar", "commodity", "indicator", "news", "publication", "research", "social"] | None = None):
+    try:
+        return current_service(request).source_governance(kind)
+    except DataServiceError as error:
+        raise HTTPException(503, "来源治理报告暂时不可用，请重试", headers={"Retry-After": "5"}) from error
 
 
 @router.get("/api/data/records")

@@ -657,3 +657,15 @@ summary { color: #596571; cursor: pointer; font-size: 11px; line-height: 1.7; }
 }
 .contract-versions dd { margin: 4px 0 12px; overflow-wrap: anywhere; }
 .feature-glossary small { display: block; grid-column: 1 / -1; color: #627080; }
+.source-governance > summary { cursor: pointer; font-weight: 600; padding: 16px 20px; }
+.governance-body { padding: 0 20px 20px; }
+.governance-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 16px; }
+.governance-card { border: 1px solid #dce0e5; padding: 16px; min-width: 0; }
+.governance-card header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.governance-card h3 { margin: 0; font-size: 15px; }
+.governance-card header span { color: #68707b; font-size: 12px; }
+.governance-card dl > div, .governance-policy dl > div { margin: 10px 0; }
+.governance-card dt, .governance-policy dt { color: #68707b; font-size: 12px; }
+.governance-card dd, .governance-policy dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.65; }
+.governance-policy { margin-top: 16px; font-size: 13px; line-height: 1.65; }
+.governance-policy > summary { cursor: pointer; font-weight: 600; }

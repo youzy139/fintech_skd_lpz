@@ -53,6 +53,18 @@ def prepare(root: Path):
         "DATA_SERVICE_URL": "",
         "ALERT_SERVICE_URL": "",
     })
+    from app.services.catalog import CatalogStore
+    from market_core.domain.sources import SourceFile
+
+    social = data_root / "科技.csv"
+    with social.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerows([["created_at_twitter", "text"], ["2020-01-01", "合成目录样本"], ["", "无日期样本"], ["invalid", ""]])
+    catalog = CatalogStore(root / "market.db")
+    try:
+        catalog.import_file(SourceFile.create(data_root, social, "social"))
+    finally:
+        catalog.close()
 
 
 def main():

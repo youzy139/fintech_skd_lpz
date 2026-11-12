@@ -48,6 +48,9 @@ class RemoteCatalogClient:
     def overview(self, kind: str | None) -> dict[str, Any]:
         return self._get("/api/data/overview", {"kind": kind})
 
+    def governance(self, kind: str | None) -> dict[str, Any]:
+        return self._get("/api/data/governance", {"kind": kind})
+
     def list_tags(self, kind: str | None) -> list[dict[str, Any]]:
         return self._get("/api/data/tags", {"kind": kind})
 

@@ -255,6 +255,11 @@ class CatalogStore:
         }
 
     @synchronized
+    def governance(self, kind: str | None) -> dict[str, Any]:
+        from app.services.source_governance import governance_report
+        return governance_report(self, kind)
+
+    @synchronized
     def list_tags(self, kind: str | None) -> list[dict[str, Any]]:
         where = "WHERE kind = ?" if kind else ""
         params = (kind,) if kind else ()
