@@ -59,7 +59,7 @@ def prepare(root: Path):
     social = data_root / "科技.csv"
     with social.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerows([["created_at_twitter", "text"], ["2020-01-01", "合成目录样本"], ["", "无日期样本"], ["invalid", ""]])
+        writer.writerows([["created_at_twitter", "text", "optional"], ["2020-01-01", "合成目录样本", ""], ["", "无日期样本", ""], ["invalid", "", ""]])
     catalog = CatalogStore(root / "market.db")
     try:
         catalog.import_file(SourceFile.create(data_root, social, "social"))

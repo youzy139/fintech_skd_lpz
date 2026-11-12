@@ -74,6 +74,29 @@ def test_statistics_follow_changed_file_and_empty_source(tmp_path: Path):
     store.close()
 
 
+def test_import_and_rebuild_keep_fields_that_are_entirely_empty(tmp_path: Path):
+    store = CatalogStore(tmp_path / "catalog.db")
+    path = tmp_path / "empty-fields.csv"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["created_at_twitter", "text", "optional"])
+        writer.writeheader()
+        writer.writerows([
+            {"created_at_twitter": "2024-01-01", "text": "", "optional": ""},
+            {"created_at_twitter": "2024-01-02", "text": "", "optional": ""},
+        ])
+    item = SourceFile.create(tmp_path, path, "social")
+
+    store.import_file(item)
+    expected = {field["name"]: field["non_null_count"] for field in store.overview("social")["fields"]}
+    assert expected == {"created_at_twitter": 2, "text": 0, "optional": 0}
+
+    store.connection.execute("DELETE FROM source_fields")
+    store.rebuild_statistics()
+    rebuilt = {field["name"]: field["non_null_count"] for field in store.overview("social")["fields"]}
+    assert rebuilt == expected
+    store.close()
+
+
 def test_tag_counts_filtering_and_rebuild(tmp_path: Path):
     store = CatalogStore(tmp_path / "catalog.db")
     item = make_source(tmp_path, [("2024-01-01", "AI 与半导体"), ("2024-01-02", "通胀与加息"), ("2024-01-03", "普通文本")])

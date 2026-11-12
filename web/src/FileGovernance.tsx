@@ -46,6 +46,7 @@ export default function FileGovernance({ sourceId, onClose }: { sourceId: string
       <p>{report.policy.time_semantics}；{report.policy.restriction}</p>
       <h4>字段非空与空缺证据</h4>
       <p className="catalog-note">空缺包含空字符串、null 和未出现字段，不等于必填字段缺失。多 Sheet 按文件合并统计。</p>
+      {report.records > 0 && report.statistics_status === 'consistent' && <p className="catalog-note">本次展示 {report.fields.length} 个字段，其中 {report.fields.filter(field => field.non_null_count === 0).length} 个全空。字段目录来自已解析记录，空文件表头与历史未回填字段可能未登记。</p>}
       {report.fields.length ? <div className="table-wrap"><table><thead><tr><th>原始字段</th><th>非空（条）</th><th>空缺（条）</th><th>空缺比例</th></tr></thead><tbody>{report.fields.map(field => <tr key={field.name}><td>{field.name}</td><td>{number(field.non_null_count)}</td><td>{number(field.empty_or_absent_count)}</td><td>{ratio(field.empty_or_absent_ratio)}</td></tr>)}</tbody></table></div> : <p>暂无已登记字段证据</p>}
       {report.fields_truncated && <p>字段超过 100 项，仅展示前 100 项。</p>}
       <details><summary>统计口径与限制</summary><ul>{report.limitations.map(item => <li key={item}>{item}</li>)}</ul><p className="governance-version">目录版本：{report.data_version}<br />政策版本：{report.policy_version}</p></details>

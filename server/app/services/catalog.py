@@ -167,7 +167,7 @@ class CatalogStore:
         )
         self.connection.executemany(
             "INSERT INTO source_fields (source_id, name, field_position, non_null_count) VALUES (?, ?, ?, ?)",
-            [(source_id, name, positions[name], count) for name, count in fields.items()],
+            [(source_id, name, position, fields[name]) for name, position in positions.items()],
         )
         self.connection.executemany(
             "INSERT INTO source_tag_stats (source_id, kind, tag, record_count) VALUES (?, ?, ?, ?)",

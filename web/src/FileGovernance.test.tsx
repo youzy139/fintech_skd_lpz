@@ -70,3 +70,13 @@ it('shows inconsistent counts and empty denominators without false percentages',
   expect(screen.queryByText('0.00%')).not.toBeInTheDocument()
   expect(screen.getByText('字段超过 100 项，仅展示前 100 项。')).toBeInTheDocument()
 })
+
+it('includes an entirely empty observed field without treating it as a required-field failure', async () => {
+  const value = report()
+  value.fields.push({ name: 'optional', non_null_count: 0, empty_or_absent_count: 3, empty_or_absent_ratio: 1 })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(value)))
+  render(<FileGovernance sourceId="one" onClose={() => {}} />)
+  await screen.findByRole('cell', { name: 'optional' })
+  expect(screen.getByText(/本次展示 2 个字段，其中 1 个全空/)).toBeInTheDocument()
+  expect(screen.getByRole('cell', { name: '100.00%' })).toBeInTheDocument()
+})
