@@ -260,6 +260,27 @@ class CatalogStore:
         return governance_report(self, kind)
 
     @synchronized
+    def file_governance(self, source_id: str) -> dict[str, Any] | None:
+        from app.services.source_governance import file_governance_report
+        return file_governance_report(self, source_id)
+
+    def _file_statistics(self, source_id: str) -> tuple | None:
+        row = self.connection.execute(
+            "SELECT id, kind, path, status, record_count, error_count, sheets_json, size, mtime_ns FROM source_files WHERE id = ?", (source_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        file = dict(zip(("id", "kind", "path", "status", "record_count", "error_count", "sheets", "size", "mtime_ns"), row))
+        file["sheets"] = json.loads(file["sheets"])
+        start, end, dated = self.connection.execute(
+            "SELECT MIN(event_date), MAX(event_date), COALESCE(SUM(record_count),0) FROM source_daily_stats WHERE source_id = ?", (source_id,),
+        ).fetchone()
+        fields = self.connection.execute(
+            "SELECT name, non_null_count FROM source_fields WHERE source_id = ? ORDER BY field_position, name LIMIT 101", (source_id,),
+        ).fetchall()
+        return file, start, end, dated, fields
+
+    @synchronized
     def list_tags(self, kind: str | None) -> list[dict[str, Any]]:
         where = "WHERE kind = ?" if kind else ""
         params = (kind,) if kind else ()

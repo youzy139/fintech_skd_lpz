@@ -25,7 +25,7 @@ class RemoteCatalogClient:
             raise ValueError("数据服务超时必须大于 0 秒")
         self.opener = opener
 
-    def _get(self, path: str, parameters: dict[str, Any] | None = None) -> Any:
+    def _get(self, path: str, parameters: dict[str, Any] | None = None, *, allow_not_found: bool = False) -> Any:
         query = urlencode([(key, value) for key, values in (parameters or {}).items() for value in (values if isinstance(values, list) else [values]) if value is not None], doseq=True)
         url = f"{self.base_url}{path}" + (f"?{query}" if query else "")
         request = Request(url, headers={"Accept": "application/json", "X-Request-ID": current_request_id(), **outgoing_auth_headers()})
@@ -33,6 +33,8 @@ class RemoteCatalogClient:
             with self.opener(request, timeout=self.timeout_seconds) as response:
                 return json.loads(response.read().decode("utf-8"))
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError, OSError) as error:
+            if allow_not_found and isinstance(error, HTTPError) and error.code == 404:
+                return None
             raise DataServiceError("数据服务暂时不可用") from error
 
     @property
@@ -50,6 +52,9 @@ class RemoteCatalogClient:
 
     def governance(self, kind: str | None) -> dict[str, Any]:
         return self._get("/api/data/governance", {"kind": kind})
+
+    def file_governance(self, source_id: str) -> dict[str, Any] | None:
+        return self._get(f"/api/data/files/{quote(source_id, safe='')}/governance", allow_not_found=True)
 
     def list_tags(self, kind: str | None) -> list[dict[str, Any]]:
         return self._get("/api/data/tags", {"kind": kind})

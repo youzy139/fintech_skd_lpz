@@ -51,3 +51,14 @@ def source_files(request: Request, kind: str | None = None, query: str | None = 
 @router.get("/api/data/files/{source_id}/records")
 def source_records(source_id: str, request: Request, query: str | None = None, date: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
     return current_service(request).source_records(source_id, query, date, offset, limit, tag=tag, tags=tags, match=match)
+
+
+@router.get("/api/data/files/{source_id}/governance")
+def source_file_governance(source_id: str, request: Request):
+    try:
+        report = current_service(request).source_file_governance(source_id)
+    except DataServiceError as error:
+        raise HTTPException(503, "文件质量证据暂时不可用，请重试", headers={"Retry-After": "5"}) from error
+    if report is None:
+        raise HTTPException(404, "来源文件不存在")
+    return report

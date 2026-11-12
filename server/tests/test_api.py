@@ -31,6 +31,7 @@ def fake_service():
         data_version=lambda: "version-1",
         source_summary=lambda: {"total_files": 1, "imported_files": 1, "total_records": 2, "errors": 0, "groups": []},
         source_governance=lambda kind: {"kind": kind, "items": [], "scope": "source-kind"},
+        source_file_governance=lambda source_id: None,
         source_overview=lambda kind: {"kind": kind, "files": 1, "records": 2, "start_date": "2024-01-01", "end_date": "2024-01-02", "undated_records": 0, "granularity": "day", "trend": [{"period": "2024-01-02", "count": 2}], "fields": []},
         source_tags=lambda kind: [{"tag": "人工智能", "records": 1}],
         source_files=lambda kind, query, offset, limit: {"total": 1, "items": [{"id": "source", "path": "科技.csv", "status": "imported", "record_count": 2}]},

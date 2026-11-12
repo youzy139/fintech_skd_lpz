@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.version import __version__
+
 import asyncio
 
 from fastapi import APIRouter, Request
@@ -15,7 +17,7 @@ router = APIRouter(tags=["system"])
 @router.get("/api/health")
 def health(request: Request):
     service = current_service(request)
-    return {"status": "ok", "version": "0.3.5", **service.health_details()}
+    return {"status": "ok", "version": __version__, **service.health_details()}
 
 
 @router.get("/api/health/ready")

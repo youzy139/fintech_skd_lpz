@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import Chart from './Chart'
 import SourceGovernance from './SourceGovernance'
+import FileGovernance from './FileGovernance'
 import { api } from './api'
 import { chartColors } from './chartTheme'
 import { ErrorMessage, Metric, Panel } from './ui'
@@ -61,6 +62,7 @@ export default function SourceCatalog() {
   const [tagNotice, setTagNotice] = useState('')
   const [kind, setKind] = useState('')
   const [selectedFile, setSelectedFile] = useState<SourceFile | null>(null)
+  const [qualityFile, setQualityFile] = useState<SourceFile | null>(null)
   const [fileInput, setFileInput] = useState('')
   const [fileQuery, setFileQuery] = useState('')
   const [recordInput, setRecordInput] = useState('')
@@ -72,6 +74,7 @@ export default function SourceCatalog() {
   const [rawOpen, setRawOpen] = useState(false)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+  useEffect(() => { setQualityFile(null) }, [kind, fileQuery, fileOffset, rawOpen])
   const limit = 20
   useEffect(() => { const controller = new AbortController(); api<Summary>('/api/data/summary', controller.signal).then(setSummary).catch(reason => { if (!isAbort(reason)) setError(reason.message) }); return () => controller.abort() }, [attempt])
   useEffect(() => { const controller = new AbortController(); setOverview(null); const params = kind ? `?kind=${encodeURIComponent(kind)}` : ''; api<Overview>(`/api/data/overview${params}`, controller.signal).then(setOverview).catch(reason => { if (!isAbort(reason)) setError(reason.message) }); return () => controller.abort() }, [kind, attempt])
@@ -120,6 +123,6 @@ export default function SourceCatalog() {
       {!records ? <div className="empty">正在读取当前页…</div> : records.items.length === 0 ? <div className="empty">当前筛选条件下暂无记录</div> : <div className="content-records">{records.items.map(record => <RecordCard key={`${record.source_id}-${record.record_index}`} record={record} />)}</div>}
       {records && <div className="pagination"><span>第 {Math.floor(recordOffset / limit) + 1} / {Math.max(1, Math.ceil(records.total / limit))} 页</span><div><button aria-label="上一页记录" disabled={recordOffset === 0} onClick={() => setRecordOffset(Math.max(0, recordOffset - limit))}>上一页</button><button aria-label="下一页记录" disabled={recordOffset + limit >= records.total} onClick={() => setRecordOffset(recordOffset + limit)}>下一页</button></div></div>}
     </Panel>
-    <details className="panel raw-files" onToggle={event => setRawOpen(event.currentTarget.open)}><summary>来源文件与入库核对</summary><div className="raw-files-body"><div className="panel-head"><div><h2>原始文件目录</h2><p>仅在展开此区域后加载，每页 20 个文件</p></div><form className="catalog-search" onSubmit={searchFiles}><input value={fileInput} onChange={event => setFileInput(event.target.value)} placeholder="搜索文件名或路径" /><button type="submit">搜索</button></form></div><div className="table-wrap"><table><thead><tr><th>类型</th><th>来源文件</th><th>状态</th><th>记录数（条）</th><th>Sheet 数</th><th>操作</th></tr></thead><tbody>{files?.items.map(file => <tr key={file.id}><td>{kindNames[file.kind] ?? file.kind}</td><td className="source-path" title={file.path}>{file.path}</td><td><span className={`import-status ${file.status}`}>{file.status === 'imported' ? '已入库' : file.status}</span></td><td className="numeric">{file.record_count.toLocaleString()}</td><td>{file.sheets.length || '—'}</td><td><button className="text-button" onClick={() => { setSelectedFile(file); setRecordOffset(0); setRecordQuery(''); setRecordInput(''); setDateQuery(''); setDateInput('') }}>只看此文件</button></td></tr>)}</tbody></table></div>{rawOpen && !files && <div className="empty">正在读取文件目录…</div>}{files && <div className="pagination"><span>第 {Math.floor(fileOffset / limit) + 1} / {Math.max(1, Math.ceil(files.total / limit))} 页</span><div><button disabled={fileOffset === 0} onClick={() => setFileOffset(Math.max(0, fileOffset - limit))}>上一页</button><button disabled={fileOffset + limit >= files.total} onClick={() => setFileOffset(fileOffset + limit)}>下一页</button></div></div>}</div></details>
+    <details className="panel raw-files" onToggle={event => setRawOpen(event.currentTarget.open)}><summary>来源文件与入库核对</summary><div className="raw-files-body"><div className="panel-head"><div><h2>原始文件目录</h2><p>仅在展开此区域后加载，每页 20 个文件</p></div><form className="catalog-search" onSubmit={searchFiles}><input value={fileInput} onChange={event => setFileInput(event.target.value)} placeholder="搜索文件名或路径" /><button type="submit">搜索</button></form></div>{rawOpen && qualityFile && <FileGovernance key={qualityFile.id} sourceId={qualityFile.id} onClose={() => setQualityFile(null)} />}<div className="table-wrap"><table><thead><tr><th>类型</th><th>来源文件</th><th>状态</th><th>记录数（条）</th><th>Sheet 数</th><th>操作</th></tr></thead><tbody>{files?.items.map(file => <tr key={file.id}><td>{kindNames[file.kind] ?? file.kind}</td><td className="source-path" title={file.path}>{file.path}</td><td><span className={`import-status ${file.status}`}>{file.status === 'imported' ? '已入库' : file.status}</span></td><td className="numeric">{file.record_count.toLocaleString()}</td><td>{file.sheets.length || '—'}</td><td><button className="text-button" onClick={() => { setSelectedFile(file); setRecordOffset(0); setRecordQuery(''); setRecordInput(''); setDateQuery(''); setDateInput('') }}>只看此文件</button><button className="text-button" aria-pressed={qualityFile?.id === file.id} onClick={() => setQualityFile(file)}>质量证据</button></td></tr>)}</tbody></table></div>{rawOpen && !files && <div className="empty">正在读取文件目录…</div>}{files && <div className="pagination"><span>第 {Math.floor(fileOffset / limit) + 1} / {Math.max(1, Math.ceil(files.total / limit))} 页</span><div><button disabled={fileOffset === 0} onClick={() => setFileOffset(Math.max(0, fileOffset - limit))}>上一页</button><button disabled={fileOffset + limit >= files.total} onClick={() => setFileOffset(fileOffset + limit)}>下一页</button></div></div>}</div></details>
   </div>
 }

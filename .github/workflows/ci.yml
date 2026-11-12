@@ -22,6 +22,7 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install -r requirements-dev.txt
+      - run: python scripts/check_versions.py
       - run: python -m pytest --cov=market_core --cov=server/app --cov-report=term-missing --cov-fail-under=30 server/tests
         env:
           PYTHONUTF8: '1'

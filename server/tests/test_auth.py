@@ -99,6 +99,7 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     market = bearer(create_user(store, "market-user", domains=("market",)))
     assert client.get("/api/data/records", headers=market).status_code == 403
     assert client.get("/api/data/governance", headers=market).status_code == 403
+    assert client.get("/api/data/files/unknown/governance", headers=market).status_code == 403
     assert client.get("/api/home/summary", headers=market).status_code == 403
     assert client.get("/api/replay/calendar", headers=market).status_code == 403
     result = client.post("/graphql", json={"query": "query Q { allowed: assets ...Private } fragment Private on Query { hidden: sourceSummary }"}, headers=market)
@@ -110,6 +111,7 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     assert client.get("/api/features/latest", headers=catalog).status_code == 403
     assert client.get("/api/data/records", headers=catalog).status_code == 200
     assert client.get("/api/data/governance", headers=catalog).status_code == 200
+    assert client.get("/api/data/files/unknown/governance", headers=catalog).status_code == 404
     assert client.post("/graphql", json={"query": "{ sourceSummary }"}, headers=catalog).json()["data"]["sourceSummary"]["total_records"] == 2
     analyst = bearer(create_user(store, "analyst", "analyst"))
     assert client.post("/api/replay/sessions", json={"start_date": "2024-01-01", "end_date": "2024-01-02"}, headers=analyst).status_code == 201

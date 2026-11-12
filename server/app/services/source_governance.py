@@ -6,6 +6,42 @@ from app.services.remote_catalog import DataServiceError
 from market_core.domain.source_governance import SOURCE_POLICIES, source_policy
 
 
+def file_governance_report(catalog: Any, source_id: str) -> dict[str, Any] | None:
+    version = catalog.data_version()
+    statistics = catalog._file_statistics(source_id)
+    if catalog.data_version() != version:
+        raise DataServiceError("目录版本发生变化，请重试")
+    if statistics is None:
+        return None
+    file, start, end, dated, fields = statistics
+    records = file["record_count"]
+    consistent = records >= 0 and 0 <= dated <= records and all(0 <= count <= records for _, count in fields)
+    available = file["status"] == "imported" and consistent
+    return {
+        "schema": "file-governance-v1", "policy_version": "source-policy-v1",
+        "data_version": version, "scope": "source-file", "file": file,
+        "policy": source_policy(file["kind"]),
+        "records": records, "start_date": start, "end_date": end,
+        "dated_records": dated, "undated_records": records - dated,
+        "undated_ratio": (records - dated) / records if available and records else None,
+        "statistics_status": "inconsistent" if not consistent else "consistent" if available else "unavailable",
+        "fields": [{
+            "name": name, "non_null_count": count,
+            "empty_or_absent_count": records - count if available else None,
+            "empty_or_absent_ratio": (records - count) / records if available and records else None,
+        } for name, count in fields[:100]],
+        "field_limit": 100, "fields_truncated": len(fields) > 100,
+        "duplicate_records": None, "invalid_records": None,
+        "limitations": [
+            "读取导入时的预聚合证据，不重新扫描原文件，也未独立复核实际记录总数",
+            "字段空缺含空字符串、null 和未出现字段；不等于必填字段缺失或语义异常",
+            "仅展示已登记字段，历史统计可能未登记全空字段；多 Sheet 合并统计，不代表逐 Sheet 完整率",
+            "无日期表示解析结果缺少事件日期；文件级导入错误数不是无效记录数",
+            "重复和语义异常未评估；统计一致仅表示数值范围检查通过，不表示数据质量合格",
+        ],
+    }
+
+
 def governance_report(catalog: Any, kind: str | None = None) -> dict[str, Any]:
     version = catalog.data_version()
     summary = catalog.summary()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.version import __version__
+
 import asyncio
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -39,7 +41,7 @@ def create_alert_app(service: AlertService | None = None, initialize: bool = Tru
             if service is None:
                 app.state.service.close()
 
-    app = FastAPI(title="MarketLens 预警服务", version="0.3.5", lifespan=lifespan)
+    app = FastAPI(title="MarketLens 预警服务", version=__version__, lifespan=lifespan)
     install_governance(app, config, "marketlens-alert")
     install_auth(app, config.cors_origins)
     app.state.metrics = RequestMetrics()

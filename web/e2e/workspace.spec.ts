@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
 
 test('管理员可以复核市场证据并完成真实两日回放', async ({ page }) => {
   const errors: string[] = []
@@ -23,6 +26,8 @@ test('管理员可以复核市场证据并完成真实两日回放', async ({ pa
   const workspaceStarted = Date.now()
   await page.getByRole('button', { name: /进入市场工作台/ }).click()
   await expect(page.getByRole('heading', { name: '市场总览' })).toBeVisible()
+  await expect(page.locator('.environment-label')).toHaveText(`RESEARCH · v${version}`)
+  expect((await (await page.request.get('/api/health')).json()).version).toBe(version)
   timings.workspace_overview_ms = Date.now() - workspaceStarted
   await expect(page.locator('.chart canvas').first()).toBeVisible()
   await page.screenshot({ path: test.info().outputPath('overview-desktop.png'), fullPage: true })
@@ -131,12 +136,27 @@ test('管理员可以复核市场证据并完成真实两日回放', async ({ pa
   await page.getByRole('button', { name: /社交媒体/ }).click()
   await expect(page.locator('.governance-card')).toHaveCount(1)
   await expect(page.locator('.governance-card').getByText('2 条 · 66.67%')).toBeVisible()
+  await page.getByText('来源文件与入库核对', { exact: true }).click()
+  await page.getByRole('button', { name: '质量证据', exact: true }).click()
+  const fileQuality = page.getByRole('region', { name: '文件质量证据' })
+  await expect(fileQuality.getByText('2 条 · 66.67%')).toBeVisible()
+  await expect(fileQuality.getByRole('cell', { name: '33.33%' })).toHaveCount(2)
+  const socialFiles = await (await page.request.get('/api/data/files?kind=social')).json()
+  const fileReport = await (await page.request.get(`/api/data/files/${socialFiles.items[0].id}/governance`)).json()
+  expect(fileReport.scope).toBe('source-file')
+  expect(fileReport.fields.every((field: { empty_or_absent_count: number }) => field.empty_or_absent_count === 1)).toBe(true)
+  await page.screenshot({ path: test.info().outputPath('file-governance-desktop.png'), fullPage: true })
   await page.screenshot({ path: test.info().outputPath('source-governance-desktop.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.evaluate(() => { window.scrollTo(0, 0); (document.activeElement as HTMLElement)?.blur() })
   await page.waitForFunction(() => window.scrollY === 0 && document.querySelector('.sidebar')!.getBoundingClientRect().right <= 0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: test.info().outputPath('source-governance-mobile.png'), fullPage: true })
+  await fileQuality.scrollIntoViewIfNeeded()
+  await expect(fileQuality.getByText('2 条 · 66.67%')).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('file-governance-mobile.png'), fullPage: true })
+  await fileQuality.getByRole('button', { name: '关闭文件质量证据' }).click()
+  await expect(fileQuality).toHaveCount(0)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.screenshot({ path: test.info().outputPath('catalog-desktop.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })

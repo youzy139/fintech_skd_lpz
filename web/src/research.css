@@ -669,3 +669,8 @@ summary { color: #596571; cursor: pointer; font-size: 11px; line-height: 1.7; }
 .governance-card dd, .governance-policy dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.65; }
 .governance-policy { margin-top: 16px; font-size: 13px; line-height: 1.65; }
 .governance-policy > summary { cursor: pointer; font-weight: 600; }
+.file-governance { margin: 12px 0 20px; min-width: 0; scroll-margin-top: 72px; }
+.file-quality-path { overflow-wrap: anywhere; font-weight: 600; }
+.file-governance .table-wrap { max-height: 360px; overflow: auto; }
+.file-governance td:first-child { overflow-wrap: anywhere; }
+.file-governance header { gap: 12px; flex-wrap: wrap; }

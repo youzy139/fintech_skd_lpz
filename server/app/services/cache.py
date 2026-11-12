@@ -173,6 +173,9 @@ class CachedCatalogStore:
     def governance(self, kind: str | None) -> dict[str, Any]:
         return self.delegate.governance(kind)
 
+    def file_governance(self, source_id: str) -> dict[str, Any] | None:
+        return self.delegate.file_governance(source_id)
+
     def list_tags(self, kind: str | None) -> list[dict[str, Any]]:
         return self._cached("tags", kind, lambda: self.delegate.list_tags(kind))
 

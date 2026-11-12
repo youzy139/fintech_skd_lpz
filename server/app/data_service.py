@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.version import __version__
+
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 
@@ -26,7 +28,7 @@ def create_data_app(service: DataCatalogService | None = None) -> FastAPI:
             if service is None:
                 app.state.service.close()
 
-    app = FastAPI(title="MarketLens 数据服务", version="0.3.5", lifespan=lifespan)
+    app = FastAPI(title="MarketLens 数据服务", version=__version__, lifespan=lifespan)
     install_governance(app, config, "marketlens-data")
     install_auth(app, config.cors_origins)
     app.state.metrics = RequestMetrics()

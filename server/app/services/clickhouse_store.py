@@ -180,6 +180,29 @@ class ClickHouseCatalogStore:
         return governance_report(self, kind)
 
     @synchronized
+    def file_governance(self, source_id: str) -> dict[str, Any] | None:
+        from app.services.source_governance import file_governance_report
+        return file_governance_report(self, source_id)
+
+    def _file_statistics(self, source_id: str) -> tuple | None:
+        params = Parameters()
+        identifier = params.add(source_id)
+        rows = self.client.query(
+            f"SELECT id, kind, path, status, record_count, error_count, sheets_json, size, mtime_ns FROM active_source_files WHERE id = {identifier} LIMIT 1", parameters=params.values,
+        ).result_rows
+        if not rows:
+            return None
+        file = dict(zip(("id", "kind", "path", "status", "record_count", "error_count", "sheets", "size", "mtime_ns"), rows[0]))
+        file["sheets"] = json.loads(file["sheets"])
+        start, end, dated = self.client.query(
+            f"SELECT minOrNull(event_date), maxOrNull(event_date), sum(record_count) FROM active_source_daily_stats WHERE source_id = {identifier}", parameters=params.values,
+        ).result_rows[0]
+        fields = self.client.query(
+            f"SELECT name, non_null_count FROM active_source_fields WHERE source_id = {identifier} ORDER BY field_position, name LIMIT 101", parameters=params.values,
+        ).result_rows
+        return file, iso_date(start), iso_date(end), int(dated or 0), fields
+
+    @synchronized
     def overview(self, kind: str | None) -> dict[str, Any]:
         params = Parameters()
         where = f"WHERE kind = {params.add(kind)}" if kind else ""
