@@ -156,6 +156,7 @@ def test_clickhouse_file_evidence_uses_parameterized_active_views():
     reader = ClickHouseCatalogStore({"database": "test"}, SimpleNamespace(query=query))
     report = reader.file_governance("id'quoted")
     assert report["undated_records"] == 2 and report["fields"][0]["empty_or_absent_count"] == 1
+    assert report["audit_registration"]["status"] == "not_comparable"
     assert all(sql.startswith("SELECT ") and "id'quoted" not in sql for sql, _ in calls)
     assert "minOrNull" in calls[2][0]
     assert "LIMIT 101" in calls[3][0]

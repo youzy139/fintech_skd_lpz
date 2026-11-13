@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterable, TypeVar
 from market_core.domain.sources import SourceFile, SourceRecord
 from market_core.domain.tags import record_tags
 from market_core.ingestion.sources import iter_records, source_sheets
+from app.services.source_content_version import SourceContentDigest
 
 
 Result = TypeVar("Result")
@@ -85,6 +86,15 @@ class CatalogStore:
                 error TEXT, started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 completed_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS source_content_versions (
+                source_id TEXT PRIMARY KEY, content_sha256 TEXT NOT NULL,
+                algorithm TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS source_quality_audits (
+                source_id TEXT PRIMARY KEY, content_sha256 TEXT NOT NULL,
+                audit_version TEXT NOT NULL, report_json TEXT NOT NULL,
+                audited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
         self.connection.execute("UPDATE source_records SET kind=(SELECT kind FROM source_files WHERE id=source_id) WHERE kind IS NULL")
@@ -112,11 +122,13 @@ class CatalogStore:
         fields: Counter[str] = Counter()
         tag_counts: Counter[str] = Counter()
         positions: dict[str, int] = {}
+        content_digest = SourceContentDigest()
         try:
             batch: list[tuple] = []
             tag_batch: list[tuple] = []
             for record in iter_records(source):
                 batch.append(self._record_tuple(record, source.kind))
+                content_digest.update(record.record_index, record.event_date, record.title, record.payload)
                 self._accumulate_statistics(record, daily, fields, positions)
                 tags = record_tags(record.title, record.payload)
                 tag_counts.update(tags)
@@ -130,6 +142,11 @@ class CatalogStore:
                 count += len(batch)
             sheets = source_sheets(source)
             self._write_statistics(source.id, source.kind, daily, fields, positions, tag_counts)
+            self.connection.execute(
+                "INSERT INTO source_content_versions (source_id, content_sha256, algorithm) VALUES (?, ?, 'canonical-record-v1') "
+                "ON CONFLICT(source_id) DO UPDATE SET content_sha256=excluded.content_sha256, algorithm=excluded.algorithm, updated_at=CURRENT_TIMESTAMP",
+                (source.id, content_digest.hexdigest()),
+            )
             self.connection.execute("UPDATE source_files SET status='imported', record_count=?, error_count=0, sheets_json=?, error=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?", (count, json.dumps(sheets), source.id))
             self.connection.execute("UPDATE import_batches SET status='completed', record_count=?, completed_at=CURRENT_TIMESTAMP WHERE id=?", (count, batch_id))
             self.connection.commit()
@@ -262,7 +279,57 @@ class CatalogStore:
     @synchronized
     def file_governance(self, source_id: str) -> dict[str, Any] | None:
         from app.services.source_governance import file_governance_report
-        return file_governance_report(self, source_id)
+        report = file_governance_report(self, source_id)
+        if report is None:
+            return None
+        audit = self.connection.execute(
+            "SELECT content_sha256, audit_version, report_json, audited_at FROM source_quality_audits WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
+        current = self.connection.execute(
+            "SELECT content_sha256 FROM source_content_versions WHERE source_id = ?", (source_id,),
+        ).fetchone()
+        if audit is None:
+            registration = {"status": "not_registered"}
+        else:
+            audit_hash, audit_version, report_json, audited_at = audit
+            freshness = "unverifiable" if current is None else "current" if current[0] == audit_hash and report["file"]["status"] == "imported" else "stale"
+            audited_report = json.loads(report_json)
+            registration = {
+                "status": freshness, "audit_version": audit_version, "audited_at": audited_at,
+                "audited_content_sha256": audit_hash,
+                "current_content_sha256": current[0] if current else None,
+                "report": {
+                    "audit_status": audited_report["audit_status"],
+                    "file": {"scanned_record_count": audited_report["file"]["scanned_record_count"]},
+                    "duplicate_excess_count": audited_report["duplicate_excess_count"],
+                    "duplicate_group_count": audited_report["duplicate_group_count"],
+                    "field_inventory_count": audited_report["field_inventory_count"],
+                    "preaggregated_field_comparison": audited_report["preaggregated_field_comparison"],
+                    "dates": audited_report["dates"],
+                },
+            }
+        report["audit_registration"] = registration
+        return report
+
+    @synchronized
+    def register_source_audit(self, report: dict[str, Any]) -> None:
+        source_id = report["file"]["id"]
+        if report.get("audit_status") != "complete":
+            raise ValueError("only complete source audits can be registered")
+        expected = report.get("source_content_sha256")
+        current = self.connection.execute(
+            "SELECT v.content_sha256 FROM source_content_versions v JOIN source_files f ON f.id=v.source_id "
+            "WHERE v.source_id = ? AND f.status = 'imported'", (source_id,),
+        ).fetchone()
+        if current is None or current[0] != expected:
+            raise ValueError("source content changed during audit or has no comparable import version")
+        self.connection.execute(
+            "INSERT INTO source_quality_audits (source_id, content_sha256, audit_version, report_json) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(source_id) DO UPDATE SET content_sha256=excluded.content_sha256, audit_version=excluded.audit_version, report_json=excluded.report_json, audited_at=CURRENT_TIMESTAMP",
+            (source_id, expected, report["audit_version"], json.dumps(report, ensure_ascii=False, separators=(",", ":"))),
+        )
+        self.connection.commit()
 
     def _file_statistics(self, source_id: str) -> tuple | None:
         row = self.connection.execute(

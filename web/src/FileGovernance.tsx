@@ -11,6 +11,16 @@ export type FileGovernanceReport = {
   undated_records: number; undated_ratio: number | null; statistics_status: string
   fields: { name: string; non_null_count: number; empty_or_absent_count: number | null; empty_or_absent_ratio: number | null }[]
   fields_truncated: boolean; limitations: string[]
+  audit_registration?: {
+    status: 'not_registered' | 'current' | 'stale' | 'unverifiable' | 'not_comparable'
+    audited_at?: string; reason?: string
+    report?: {
+      audit_status: string; file: { scanned_record_count: number }
+      duplicate_excess_count: number; duplicate_group_count: number
+      field_inventory_count: number; preaggregated_field_comparison: { status: string; mismatch_count: number }
+      dates: { undated_records: number; start_date: string | null; end_date: string | null }
+    }
+  }
 }
 const number = (value: number | null) => value === null ? '不可计算' : value.toLocaleString()
 const ratio = (value: number | null) => value === null ? '不可计算' : `${(value * 100).toFixed(2)}%`
@@ -43,6 +53,24 @@ export default function FileGovernance({ sourceId, onClose }: { sourceId: string
         <div><dt>统计范围核对</dt><dd>{report.statistics_status === 'consistent' ? '已通过数值范围检查' : report.statistics_status === 'unavailable' ? '导入未完成，比例不可计算' : '预聚合统计不一致，比例不可计算'}</dd></div>
         <div><dt>重复 / 语义异常</dt><dd>未评估 / 未评估</dd></div>
       </dl>
+      <section className="source-audit-registration" aria-label="离线逐文件审计">
+        <h4>离线逐文件审计</h4>
+        {!report.audit_registration || report.audit_registration.status === 'not_registered'
+          ? <p>尚无已登记的快照审计报告</p>
+          : report.audit_registration.status === 'not_comparable'
+            ? <p>当前为 ClickHouse active 数据；尚无可比的逐文件内容摘要，SQLite 暂存审计不会附加到此处。</p>
+            : report.audit_registration.status !== 'current'
+              ? <p role="status">审计报告已过期或无法验证，请对当前 SQLite 快照重新审计并登记。</p>
+              : <>
+                <p>当前报告 · 审计时间 {report.audit_registration.audited_at}</p>
+                <dl>
+                  <div><dt>扫描记录</dt><dd>{number(report.audit_registration.report?.file.scanned_record_count ?? null)} 条</dd></div>
+                  <div><dt>完整记录重复</dt><dd>{number(report.audit_registration.report?.duplicate_excess_count ?? null)} 条余量 · {number(report.audit_registration.report?.duplicate_group_count ?? null)} 组</dd></div>
+                  <div><dt>字段目录复核</dt><dd>{number(report.audit_registration.report?.field_inventory_count ?? null)} 个字段 · {number(report.audit_registration.report?.preaggregated_field_comparison.mismatch_count ?? null)} 项差异</dd></div>
+                  <div><dt>审计日期覆盖</dt><dd>{report.audit_registration.report?.dates.start_date ?? '无日期'} 至 {report.audit_registration.report?.dates.end_date ?? '无日期'} · 无日期 {number(report.audit_registration.report?.dates.undated_records ?? null)} 条</dd></div>
+                </dl>
+              </>}
+      </section>
       <p>{report.policy.time_semantics}；{report.policy.restriction}</p>
       <h4>字段非空与空缺证据</h4>
       <p className="catalog-note">空缺包含空字符串、null 和未出现字段，不等于必填字段缺失。多 Sheet 按文件合并统计。</p>

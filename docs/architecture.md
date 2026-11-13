@@ -328,3 +328,4 @@ docs/                  # 架构和后续数据、模型文档
 - 2026-11-12 来源治理增量：`market_core.domain.source_governance` 管理来源时间/使用与人工生命周期政策，数据服务组装只读 `/api/data/governance` 报告，SQLite/ClickHouse/远程目录共用契约。主入口沿用 catalog 鉴权，Web 展开时加载；报告按类型汇总并核对生成前后目录版本，不新增缓存或模型依赖，不执行归档/删除。详见 [专项报告](v0.4.0-source-governance.md)。
 - 逐文件增量：`GET /api/data/files/{source_id}/governance` 仅读取当前目录的文件、日期与字段预聚合，字段查询最多 101/展示 100，范围异常或导入未完成不生成比例；目录版本变化返回 503，文件不存在返回 404。缓存包装直接委派，远程目录沿用鉴权/请求 ID/有界超时；Web 从文件目录按需读取、切换取消并忽略旧响应。详见 [逐文件报告](v0.4.0-file-governance.md)。
 - v0.4.1 补丁：导入/回填按观察字段顺序保留全空列；离线审计命令显式选择 SQLite，以同一只读事务扫描单文件，规范化重复规则在 `market_core.domain.source_quality`，临时索引与报告组装在服务层。报告含字段空值分解、预聚合比对和记录序号，不把扫描加入在线 API，不把暂存结果当作 ClickHouse active 代次；详见 [审计报告](v0.4.1-source-quality-audit.md)。
+- v0.4.2 增量：目录导入保存逐文件 `canonical-record-v1` 摘要；离线审计默认仍为只读，显式 `--register` 后仅当当前导入摘要与审计摘要相同时登记。逐文件报告读取时暴露当前/过期/不可验证状态，Web 展示审计摘要；ClickHouse active 暂无同口径内容摘要，明确不关联 SQLite 暂存审计。登记不执行归档/删除，详见 [发布说明](releases/v0.4.2.md)。

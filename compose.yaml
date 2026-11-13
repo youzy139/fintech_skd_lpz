@@ -47,7 +47,7 @@ x-application: &application
     dockerfile: server/Dockerfile
     args:
       PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-  image: marketlens-backend:0.4.1
+  image: marketlens-backend:0.4.2
   environment: *app-environment
   volumes:
     - ./deploy/config/container.json:/run/marketlens/config.json:ro
@@ -251,7 +251,7 @@ services:
     build:
       context: .
       dockerfile: web/Dockerfile
-    image: marketlens-frontend:0.4.1
+    image: marketlens-frontend:0.4.2
     ports:
       - "5173:8080"
     depends_on:

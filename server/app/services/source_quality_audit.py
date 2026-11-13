@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from market_core.domain.source_quality import canonical_record
+from app.services.source_content_version import SourceContentDigest
 
 
 class SourceAuditError(ValueError):
@@ -46,7 +47,7 @@ def audit_source(database_path: Path, source_id: str) -> dict[str, Any]:
         ).fetchall())
 
         fields: dict[str, list[int]] = {}
-        content_digest = hashlib.sha256()
+        content_digest = SourceContentDigest()
         duplicate_excess = 0
         duplicate_groups = 0
         scanned = 0
@@ -82,9 +83,7 @@ def audit_source(database_path: Path, source_id: str) -> dict[str, Any]:
                         canonical = canonical_record(event_date, title, payload)
                     except (ValueError, TypeError) as error:
                         raise SourceAuditError("stored record cannot be represented as finite JSON") from error
-                    content_digest.update(str(record_index).encode("ascii") + b"\x00")
-                    content_digest.update(len(canonical).to_bytes(8, "big"))
-                    content_digest.update(canonical)
+                    content_digest.update(record_index, event_date, title, payload)
                     digest = hashlib.sha256(canonical).digest()
                     previous = signatures.execute(
                         "SELECT occurrence_count, duplicate_indices FROM signatures WHERE digest = ? AND canonical = ?",

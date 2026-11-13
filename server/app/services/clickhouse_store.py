@@ -182,7 +182,13 @@ class ClickHouseCatalogStore:
     @synchronized
     def file_governance(self, source_id: str) -> dict[str, Any] | None:
         from app.services.source_governance import file_governance_report
-        return file_governance_report(self, source_id)
+        report = file_governance_report(self, source_id)
+        if report is not None:
+            report["audit_registration"] = {
+                "status": "not_comparable",
+                "reason": "ClickHouse active generation has no canonical per-file content digest; SQLite staging audits are not attached.",
+            }
+        return report
 
     def _file_statistics(self, source_id: str) -> tuple | None:
         params = Parameters()

@@ -80,3 +80,33 @@ it('includes an entirely empty observed field without treating it as a required-
   expect(screen.getByText(/本次展示 2 个字段，其中 1 个全空/)).toBeInTheDocument()
   expect(screen.getByRole('cell', { name: '100.00%' })).toBeInTheDocument()
 })
+
+it('shows a registered SQLite audit only while its per-file content version is current', async () => {
+  const value = report()
+  value.audit_registration = {
+    status: 'current', audited_at: '2026-11-13 12:00:00',
+    report: {
+      audit_status: 'complete', file: { scanned_record_count: 3 }, duplicate_excess_count: 1,
+      duplicate_group_count: 1, field_inventory_count: 4,
+      preaggregated_field_comparison: { status: 'match', mismatch_count: 0 },
+      dates: { undated_records: 2, start_date: '2024-01-01', end_date: '2024-01-01' },
+    },
+  }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(value)))
+  const { rerender } = render(<FileGovernance sourceId="one" onClose={() => {}} />)
+  await screen.findByText(/当前报告/)
+  expect(screen.getByText(/1 条余量 · 1 组/)).toBeInTheDocument()
+  value.audit_registration.status = 'stale'
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(value)))
+  rerender(<FileGovernance sourceId="two" onClose={() => {}} />)
+  await screen.findByRole('status')
+  expect(screen.getByText(/审计报告已过期/)).toBeInTheDocument()
+})
+
+it('does not attach staging audits to ClickHouse active reports', async () => {
+  const value = report()
+  value.audit_registration = { status: 'not_comparable', reason: 'active generation has no digest' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(value)))
+  render(<FileGovernance sourceId="one" onClose={() => {}} />)
+  await screen.findByText(/当前为 ClickHouse active 数据/)
+})

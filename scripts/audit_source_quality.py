@@ -16,10 +16,11 @@ from app.services.source_quality_audit import SourceAuditError, audit_source
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Read-only per-file audit of one SQLite catalog snapshot")
+    parser = argparse.ArgumentParser(description="Per-file audit of one SQLite catalog snapshot; registration is opt-in")
     parser.add_argument("--database", required=True, type=Path, help="SQLite catalog database; distributed ClickHouse is not read")
     parser.add_argument("--source-id", required=True, help="Imported source file identifier")
     parser.add_argument("--output", type=Path, help="Optional JSON path under server/data/quality-audits")
+    parser.add_argument("--register", action="store_true", help="Register this complete report in the SQLite catalog for data-center display")
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", args.source_id):
         parser.error("--source-id must contain only letters, digits, underscore, or hyphen")
@@ -42,6 +43,8 @@ def main() -> int:
         report = audit_source(args.database, args.source_id)
     except SourceAuditError as error:
         parser.error(str(error))
+    if args.register and report["audit_status"] != "complete":
+        parser.error("only a complete audit can be registered")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
@@ -54,12 +57,23 @@ def main() -> int:
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+    if args.register:
+        from app.services.catalog import CatalogStore
+
+        catalog = CatalogStore(args.database)
+        try:
+            catalog.register_source_audit(report)
+        except ValueError as error:
+            parser.error(str(error))
+        finally:
+            catalog.close()
     print(json.dumps({
         "output": str(output_path),
         "audit_status": report["audit_status"],
         "scanned_records": report["file"]["scanned_record_count"],
         "duplicate_excess_count": report["duplicate_excess_count"],
         "duplicate_group_count": report["duplicate_group_count"],
+        "registered": args.register,
         "field_inventory_count": report["field_inventory_count"],
     }, ensure_ascii=False))
     return 0 if report["audit_status"] == "complete" else 2

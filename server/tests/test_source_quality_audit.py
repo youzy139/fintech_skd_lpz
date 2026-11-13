@@ -173,6 +173,47 @@ def test_audit_keeps_one_snapshot_while_another_connection_changes_records(tmp_p
     store.close()
 
 
+def test_registered_audit_is_bound_to_imported_content_and_becomes_stale_on_reimport(tmp_path: Path, monkeypatch):
+    from market_core.domain.sources import SourceRecord
+
+    database = tmp_path / "catalog.db"
+    store = CatalogStore(database)
+    source = make_duplicate_source(tmp_path)
+    store.import_file(source)
+    report = audit_source(database, source.id)
+    stored_hash = store.connection.execute(
+        "SELECT content_sha256 FROM source_content_versions WHERE source_id = ?", (source.id,),
+    ).fetchone()[0]
+    assert report["source_content_sha256"] == stored_hash
+    store.register_source_audit(report)
+    current = store.file_governance(source.id)["audit_registration"]
+    assert current["status"] == "current" and current["report"]["audit_status"] == "complete"
+
+    changed = [SourceRecord(source.id, 0, "2024-01-02", "changed", {"text": "updated"})]
+    monkeypatch.setattr("app.services.catalog.iter_records", lambda _: iter(changed))
+    store.import_file(source)
+    stale = store.file_governance(source.id)["audit_registration"]
+    assert stale["status"] == "stale"
+    assert stale["audited_content_sha256"] != stale["current_content_sha256"]
+    store.close()
+
+
+def test_audit_registration_rejects_changed_or_incomplete_snapshots(tmp_path: Path):
+    database = tmp_path / "catalog.db"
+    store = CatalogStore(database)
+    source = make_duplicate_source(tmp_path)
+    store.import_file(source)
+    report = audit_source(database, source.id)
+    report["source_content_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="changed during audit"):
+        store.register_source_audit(report)
+    report["audit_status"] = "inconsistent"
+    with pytest.raises(ValueError, match="only complete"):
+        store.register_source_audit(report)
+    assert store.file_governance(source.id)["audit_registration"]["status"] == "not_registered"
+    store.close()
+
+
 def test_cli_creates_a_complete_report_without_overwriting_outputs(tmp_path: Path, monkeypatch, capsys):
     from scripts import audit_source_quality
 
@@ -184,9 +225,12 @@ def test_cli_creates_a_complete_report_without_overwriting_outputs(tmp_path: Pat
     output = tmp_path / "server/data/quality-audits/report.json"
     monkeypatch.setattr(audit_source_quality, "ROOT", tmp_path)
     monkeypatch.setattr("sys.argv", ["audit_source_quality.py", "--database", str(database),
-        "--source-id", source.id, "--output", str(output)])
+        "--source-id", source.id, "--output", str(output), "--register"])
     assert audit_source_quality.main() == 0
     assert json.loads(output.read_text(encoding="utf-8"))["audit_status"] == "complete"
+    registered = CatalogStore(database)
+    assert registered.file_governance(source.id)["audit_registration"]["status"] == "current"
+    registered.close()
     original = output.read_bytes()
     with pytest.raises(SystemExit):
         audit_source_quality.main()
