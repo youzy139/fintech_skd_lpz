@@ -44,7 +44,7 @@ class Lease:
 
 
 class ConnectionLeases:
-    def __init__(self, client=None, namespace="marketlens:connections:v1", per_user=3, total=100, ttl=30.0, breaker: CircuitBreaker | None = None):
+    def __init__(self, client=None, namespace="marketlens:connections:v1", per_user=3, total=128, ttl=30.0, breaker: CircuitBreaker | None = None):
         if per_user < 1 or total < 1 or ttl < 0.3:
             raise ValueError("连接并发额度必须为正，租约期限至少 0.3 秒")
         self.client, self.namespace = client, namespace

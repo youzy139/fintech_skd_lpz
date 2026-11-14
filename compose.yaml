@@ -2,7 +2,7 @@ x-app-environment: &app-environment
   AUTH_ENABLED: "true"
   RATE_LIMIT_MODE: redis
   WS_MAX_CONNECTIONS_PER_USER: ${WS_MAX_CONNECTIONS_PER_USER:-3}
-  WS_MAX_CONNECTIONS_TOTAL: ${WS_MAX_CONNECTIONS_TOTAL:-100}
+  WS_MAX_CONNECTIONS_TOTAL: ${WS_MAX_CONNECTIONS_TOTAL:-128}
   REPLAY_MAX_RUNNING: ${REPLAY_MAX_RUNNING:-2}
   REDIS_CIRCUIT_FAILURES: ${REDIS_CIRCUIT_FAILURES:-3}
   REDIS_CIRCUIT_RECOVERY_SECONDS: ${REDIS_CIRCUIT_RECOVERY_SECONDS:-30}
@@ -47,7 +47,7 @@ x-application: &application
     dockerfile: server/Dockerfile
     args:
       PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-  image: marketlens-backend:0.5.0
+  image: marketlens-backend:0.5.1
   environment: *app-environment
   volumes:
     - ./deploy/config/container.json:/run/marketlens/config.json:ro
@@ -251,7 +251,7 @@ services:
     build:
       context: .
       dockerfile: web/Dockerfile
-    image: marketlens-frontend:0.5.0
+    image: marketlens-frontend:0.5.1
     ports:
       - "5173:8080"
     depends_on:

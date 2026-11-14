@@ -10,7 +10,8 @@ from redis.exceptions import ConnectionError
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.auth import AuthStore
-from app.core.governance import GovernanceMiddleware, SharedLimiter, category_for
+from app.core.config import load_config
+from app.core.governance import GovernanceMiddleware, SharedLimiter, category_for, install_governance
 from app.core.leases import ConnectionLeases
 from app.core.resilience import CircuitBreaker
 from test_auth import bootstrap, secured, create_user, bearer, ORIGIN
@@ -124,6 +125,17 @@ def test_websocket_message_and_connection_limits():
             with pytest.raises(WebSocketDisconnect) as error:
                 ws.receive_text()
             assert error.value.code == 4429
+
+
+def test_default_websocket_capacity_exceeds_100_and_remains_configurable(monkeypatch):
+    monkeypatch.delenv("WS_MAX_CONNECTIONS_TOTAL", raising=False)
+    app = FastAPI()
+    install_governance(app, load_config(), "test-capacity")
+    assert app.state.connection_leases.total == 128
+    monkeypatch.setenv("WS_MAX_CONNECTIONS_TOTAL", "100")
+    limited = FastAPI()
+    install_governance(limited, load_config(), "test-capacity")
+    assert limited.state.connection_leases.total == 100
 
 
 def test_audit_migration_preserves_history_and_key(tmp_path):
