@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import sqlite3
 import time
+from functools import lru_cache
 
 import jwt
 import pytest
@@ -171,6 +174,76 @@ def test_user_administration_persistence_and_no_secret_disclosure(secured):
         stored_password = db.execute("SELECT password FROM auth_users WHERE username='admin'").fetchone()[0]
     assert PASSWORD not in audit and token not in json_text and code not in audit
     assert stored_password != PASSWORD
+
+
+def test_asset_and_source_scopes_filter_resources_and_block_aggregates(secured):
+    client, store, code = secured
+    bootstrap(client, code)
+    scoped = bearer(create_user(store, "scoped-reader"))
+    store.save_user("admin", "scoped-reader", None, "observer", ["market", "catalog"], True, ["TEST"], ["source"])
+    scoped = bearer(store.login("scoped-reader", PASSWORD))
+
+    assert [item["code"] for item in client.get("/api/assets", headers=scoped).json()] == ["TEST"]
+    assert client.get("/api/assets/TEST/series", headers=scoped).status_code == 200
+    assert client.get("/api/assets/OTHER/series", headers=scoped).status_code == 404
+    assert client.get("/api/regimes/latest", headers=scoped).status_code == 403
+    assert client.get("/api/features/latest", headers=scoped).status_code == 403
+    assert [item["id"] for item in client.get("/api/data/files", headers=scoped).json()["items"]] == ["source"]
+    assert client.get("/api/data/files/source/records", headers=scoped).status_code == 200
+    assert client.get("/api/data/files/other/records", headers=scoped).status_code == 404
+    assert client.get("/api/data/summary", headers=scoped).status_code == 403
+    assert client.get("/api/data/version", headers=scoped).status_code == 403
+    assert client.get("/api/data/records", headers=scoped).status_code == 403
+    assert client.get("/api/data/tags", headers=scoped).status_code == 403
+    assert client.get("/api/replay/calendar", headers=scoped).status_code == 403
+    assert client.get("/api/home/summary", headers=scoped).status_code == 403
+    assert client.post("/graphql", json={"query": "{ assets }"}, headers=scoped).json()["data"]["assets"][0]["code"] == "TEST"
+    assert "errors" in client.post("/graphql", json={"query": "{ latestState }"}, headers=scoped).json()
+    updated = client.put("/api/auth/users/scoped-reader", json={"role": "observer", "domains": ["market", "catalog"], "enabled": True}, headers=ORIGIN)
+    assert updated.status_code == 200
+    saved = next(user for user in store.users() if user["username"] == "scoped-reader")
+    assert saved["assets"] == ["TEST"]
+    assert saved["sources"] == ["source"]
+
+
+def test_scope_filtered_catalog_cache_does_not_leak_across_accounts(secured):
+    client, store, code = secured
+    bootstrap(client, code)
+    full_scope = bearer(create_user(store, "full-reader"))
+    limited = create_user(store, "limited-reader")
+    store.save_user("admin", "limited-reader", None, "observer", ["market", "catalog"], True, ["OTHER-ASSET"], ["other-source"])
+    limited = bearer(store.login("limited-reader", PASSWORD))
+    service = client.app.state.service
+    loader = service.source_files
+    cache_loads = []
+
+    @lru_cache(maxsize=8)
+    def cached_source_files(kind, query, offset, limit):
+        cache_loads.append((kind, query, offset, limit))
+        return loader(kind, query, offset, limit)
+
+    service.source_files = cached_source_files
+
+    assert client.get("/api/data/files?limit=100", headers=full_scope).json()["total"] == 1
+    restricted_files = client.get("/api/data/files", headers=limited).json()
+    assert restricted_files["total"] == 0
+    assert restricted_files["items"] == []
+    assert client.get("/api/data/files/source/records", headers=limited).status_code == 404
+    assert client.get("/api/assets", headers=limited).json() == []
+    assert len(cache_loads) == 1
+
+
+def test_existing_auth_database_migrates_users_to_full_scope(tmp_path):
+    path = tmp_path / "legacy-auth.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE auth_users (username TEXT PRIMARY KEY, password TEXT NOT NULL, role TEXT NOT NULL, domains TEXT NOT NULL, enabled INTEGER NOT NULL, version INTEGER NOT NULL)")
+        db.execute("INSERT INTO auth_users VALUES(?,?,?,?,?,?)", ("legacy", "salt:digest", "observer", json.dumps(["catalog"]), 1, 1))
+
+    migrated = AuthStore(path)
+    user = migrated.users()[0]
+    assert user["username"] == "legacy"
+    assert user["assets"] == ["*"]
+    assert user["sources"] == ["*"]
 
 
 def test_websocket_auth_origin_logout_and_permission_revocation(secured):

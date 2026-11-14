@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { api } from './api'
 import Icon from './Icon'
 
-type User = { username: string; role: 'observer' | 'analyst' | 'admin'; domains: string[]; expires_at: number | null; can_control_replay: boolean }
-const developer: User = { username: 'local-dev', role: 'admin', domains: ['market', 'catalog'], expires_at: null, can_control_replay: true }
+type User = { username: string; role: 'observer' | 'analyst' | 'admin'; domains: string[]; assets: string[]; sources: string[]; expires_at: number | null; can_control_replay: boolean }
+const developer: User = { username: 'local-dev', role: 'admin', domains: ['market', 'catalog'], assets: ['*'], sources: ['*'], expires_at: null, can_control_replay: true }
 const Context = createContext<{ user: User; enabled: boolean }>({ user: developer, enabled: false })
 export const useAuth = () => useContext(Context)
 const roles: Record<string, string> = { observer: '观察者', analyst: '分析员', admin: '管理员' }

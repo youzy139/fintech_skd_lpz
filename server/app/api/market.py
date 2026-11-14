@@ -4,18 +4,23 @@ from fastapi import APIRouter, HTTPException, Query as QueryParam, Request
 
 from app.api.contracts import RuleRequest
 from app.api.dependencies import current_service
-from app.core.auth import auth_enabled, auth_store
+from app.core.auth import auth_enabled, auth_store, has_full_scope, require_scope
 
 router = APIRouter(tags=["market"])
 
 
 @router.get("/api/assets")
 def assets(request: Request):
-    return current_service(request).assets()
+    principal = getattr(request.state, "principal", None)
+    values = current_service(request).assets()
+    if principal is None or "*" in principal.assets:
+        return values
+    return [item for item in values if item["code"] in principal.assets]
 
 
 @router.get("/api/assets/{code}/series")
 def asset_series(code: str, request: Request, limit: int = QueryParam(500, ge=1, le=10000)):
+    require_scope(getattr(request.state, "principal", None), "asset", code)
     try:
         return current_service(request).asset_series(code, limit)
     except KeyError as error:
@@ -92,6 +97,8 @@ def activate_alert_rule(version: str, request: Request):
 
 @router.get("/api/data/quality")
 def quality(request: Request):
+    if not has_full_scope(getattr(request.state, "principal", None), "source"):
+        raise HTTPException(403, "来源范围受限账号不可查看全局质量摘要")
     return current_service(request).quality
 
 

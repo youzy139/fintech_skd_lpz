@@ -23,6 +23,8 @@ class Bootstrap(Login):
 class UserSettings(BaseModel):
     role: str
     domains: list[str] = Field(min_length=1, max_length=2)
+    assets: list[str] | None = Field(default=None, min_length=1, max_length=500)
+    sources: list[str] | None = Field(default=None, min_length=1, max_length=500)
     enabled: bool = True
     password: str | None = Field(default=None, min_length=12, max_length=128)
 
@@ -30,6 +32,8 @@ class UserSettings(BaseModel):
 class NewUser(UserSettings):
     username: str
     password: str = Field(min_length=12, max_length=128)
+    assets: list[str] = Field(default_factory=lambda: ["*"], min_length=1, max_length=500)
+    sources: list[str] = Field(default_factory=lambda: ["*"], min_length=1, max_length=500)
 
 
 def enabled_store():
@@ -71,7 +75,7 @@ def login(payload: Login, request: Request, response: Response):
 def me(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
     if not auth_enabled():
-        return {"username": "local-dev", "role": "admin", "domains": sorted(DOMAINS), "expires_at": None, "can_control_replay": True}
+        return {"username": "local-dev", "role": "admin", "domains": sorted(DOMAINS), "assets": ["*"], "sources": ["*"], "expires_at": None, "can_control_replay": True}
     return request.state.principal.public()
 
 
@@ -134,12 +138,12 @@ def archived_audit_records(identifier: str):
 @router.post("/users", status_code=201)
 def create_user(payload: NewUser, request: Request):
     store = enabled_store()
-    store.save_user(request.state.principal.username, payload.username, payload.password, payload.role, payload.domains, payload.enabled, create=True)
+    store.save_user(request.state.principal.username, payload.username, payload.password, payload.role, payload.domains, payload.enabled, payload.assets, payload.sources, create=True)
     return {"ok": True}
 
 
 @router.put("/users/{username}")
 def update_user(username: str, payload: UserSettings, request: Request):
     store = enabled_store()
-    store.save_user(request.state.principal.username, username, payload.password, payload.role, payload.domains, payload.enabled)
+    store.save_user(request.state.principal.username, username, payload.password, payload.role, payload.domains, payload.enabled, payload.assets, payload.sources)
     return {"ok": True, "sessions_revoked": True}

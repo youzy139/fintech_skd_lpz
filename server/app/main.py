@@ -24,7 +24,7 @@ from app.api.market import router as market_router
 from app.api.replay import router as replay_router
 from app.api.system import router as system_router
 from app.core.config import load_config
-from app.core.auth import auth_enabled, install_auth, require_domain
+from app.core.auth import auth_enabled, has_full_scope, install_auth, require_domain
 from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, current_request_id, error_response, install_error_handlers
 from app.core.serialization import json_compatible
@@ -43,20 +43,26 @@ from app.services.replay_capacity import ReplayCapacityError
 class Query:
     @strawberry.field
     def assets(self, info: strawberry.Info) -> JSON:
+        principal = info.context["principal"]
         if auth_enabled():
             graphql_domain(info, "market")
-        return info.context["service"].assets()
+        values = info.context["service"].assets()
+        return values if principal is None or "*" in principal.assets else [item for item in values if item["code"] in principal.assets]
 
     @strawberry.field
     def latest_state(self, info: strawberry.Info) -> JSON:
         if auth_enabled():
             graphql_domain(info, "market")
+            if not has_full_scope(info.context["principal"], "asset"):
+                raise GraphQLError("全市场模型和状态仅面向全资产范围账号", extensions={"code": "forbidden", "request_id": current_request_id()})
         return info.context["service"].latest_state()
 
     @strawberry.field
     def source_summary(self, info: strawberry.Info) -> JSON:
         if auth_enabled():
             graphql_domain(info, "catalog")
+            if not has_full_scope(info.context["principal"], "source"):
+                raise GraphQLError("来源范围受限账号不可查看全局汇总信息", extensions={"code": "forbidden", "request_id": current_request_id()})
         return info.context["service"].source_summary()
 
 

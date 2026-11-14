@@ -52,9 +52,11 @@ class Principal:
     domains: frozenset[str]
     expires: int
     service: bool = False
+    assets: frozenset[str] = frozenset({"*"})
+    sources: frozenset[str] = frozenset({"*"})
 
     def public(self) -> dict[str, Any]:
-        return {"username": self.username, "role": self.role, "domains": sorted(self.domains), "expires_at": self.expires, "can_control_replay": self.role in {"analyst", "admin"} and DOMAINS <= self.domains}
+        return {"username": self.username, "role": self.role, "domains": sorted(self.domains), "assets": sorted(self.assets), "sources": sorted(self.sources), "expires_at": self.expires, "can_control_replay": self.role in {"analyst", "admin"} and DOMAINS <= self.domains and "*" in self.assets}
 
 
 class AuthStore:
@@ -64,7 +66,7 @@ class AuthStore:
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS auth_meta (name TEXT PRIMARY KEY, value TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS auth_users (username TEXT PRIMARY KEY, password TEXT NOT NULL, role TEXT NOT NULL, domains TEXT NOT NULL, enabled INTEGER NOT NULL, version INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS auth_users (username TEXT PRIMARY KEY, password TEXT NOT NULL, role TEXT NOT NULL, domains TEXT NOT NULL, enabled INTEGER NOT NULL, version INTEGER NOT NULL, scopes TEXT NOT NULL DEFAULT '{"assets":["*"],"sources":["*"]}');
                 CREATE TABLE IF NOT EXISTS auth_sessions (id TEXT PRIMARY KEY, username TEXT NOT NULL, expires INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS auth_attempts (id TEXT PRIMARY KEY, count INTEGER NOT NULL, until INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS auth_audit (id INTEGER PRIMARY KEY, occurred INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL);
@@ -81,6 +83,9 @@ class AuthStore:
             for name, definition in {"request_id": "TEXT NOT NULL DEFAULT ''", "status": "INTEGER NOT NULL DEFAULT 0"}.items():
                 if name not in columns:
                     db.execute(f"ALTER TABLE auth_audit ADD COLUMN {name} {definition}")
+            user_columns = {row[1] for row in db.execute("PRAGMA table_info(auth_users)")}
+            if "scopes" not in user_columns:
+                db.execute("ALTER TABLE auth_users ADD COLUMN scopes TEXT NOT NULL DEFAULT '{\"assets\":[\"*\"],\"sources\":[\"*\"]}'")
             db.execute("CREATE INDEX IF NOT EXISTS auth_audit_actor_id ON auth_audit(actor,id)")
             db.execute("INSERT OR IGNORE INTO auth_meta VALUES ('key', ?)", (secrets.token_hex(48),))
             db.execute("INSERT OR IGNORE INTO auth_meta VALUES ('bootstrap', ?)", (secrets.token_urlsafe(32),))
@@ -186,7 +191,7 @@ class AuthStore:
             expected = db.execute("SELECT value FROM auth_meta WHERE name='bootstrap'").fetchone()[0]
             if db.execute("SELECT count(*) FROM auth_users").fetchone()[0] or not hmac.compare_digest(code, expected):
                 raise HTTPException(403, "初始化凭据无效或管理员已创建")
-            db.execute("INSERT INTO auth_users VALUES(?,?,?,?,1,1)", (username, hashed, "admin", json.dumps(sorted(DOMAINS))))
+            db.execute("INSERT INTO auth_users(username,password,role,domains,enabled,version,scopes) VALUES(?,?,?,?,1,1,?)", (username, hashed, "admin", json.dumps(sorted(DOMAINS)), json.dumps({"assets": ["*"], "sources": ["*"]}, separators=(",", ":"))))
             db.execute("UPDATE auth_meta SET value='' WHERE name='bootstrap'")
             self.audit(db, username, "bootstrap", username)
         self.path.with_name("auth-bootstrap.txt").unlink(missing_ok=True)
@@ -235,7 +240,8 @@ class AuthStore:
             session = db.execute("SELECT 1 FROM auth_sessions WHERE id=? AND username=? AND expires>?", (claims["jti"], claims["sub"], int(time.time()))).fetchone()
             if claims["kind"] != "user" or not session or not user or not user["enabled"] or user["version"] != claims.get("ver"):
                 raise HTTPException(401, "登录已失效，请重新登录", headers={"WWW-Authenticate": "Bearer"})
-            return Principal(user["username"], user["role"], frozenset(json.loads(user["domains"])), claims["exp"])
+            scopes = json.loads(user["scopes"]) if "scopes" in user.keys() else {"assets": ["*"], "sources": ["*"]}
+            return Principal(user["username"], user["role"], frozenset(json.loads(user["domains"])), claims["exp"], False, frozenset(scopes["assets"]), frozenset(scopes["sources"]))
 
     def service_token(self, name):
         now = int(time.time())
@@ -249,29 +255,46 @@ class AuthStore:
 
     def users(self):
         with self.connect() as db:
-            return [{"username": row["username"], "role": row["role"], "domains": json.loads(row["domains"]), "enabled": bool(row["enabled"])} for row in db.execute("SELECT * FROM auth_users ORDER BY username")]
+            return [{"username": row["username"], "role": row["role"], "domains": json.loads(row["domains"]), **json.loads(row["scopes"]), "enabled": bool(row["enabled"])} for row in db.execute("SELECT * FROM auth_users ORDER BY username")]
 
-    def save_user(self, actor, username, password, role, domains, enabled, create=False):
+    def save_user(self, actor, username, password, role, domains, enabled, assets=None, sources=None, create=False):
         self.validate_user(username, password, role, domains)
         hashed = password_hash(password) if password else None
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             old = db.execute("SELECT * FROM auth_users WHERE username=?", (username,)).fetchone()
             if create:
+                assets, sources = self.validate_scopes(assets if assets is not None else ["*"], sources if sources is not None else ["*"], role)
                 if old:
                     raise HTTPException(409, "用户名已存在")
                 if not hashed:
                     raise HTTPException(422, "新用户必须设置密码")
-                db.execute("INSERT INTO auth_users VALUES(?,?,?,?,?,1)", (username, hashed, role, json.dumps(sorted(set(domains))), int(enabled)))
+                db.execute("INSERT INTO auth_users(username,password,role,domains,enabled,version,scopes) VALUES(?,?,?,?,?,1,?)", (username, hashed, role, json.dumps(sorted(set(domains))), int(enabled), json.dumps({"assets": assets, "sources": sources}, separators=(",", ":"))))
             else:
                 if not old:
                     raise HTTPException(404, "用户不存在")
+                old_scopes = json.loads(old["scopes"]) if "scopes" in old.keys() else {"assets": ["*"], "sources": ["*"]}
+                assets, sources = self.validate_scopes(assets if assets is not None else old_scopes["assets"], sources if sources is not None else old_scopes["sources"], role)
                 admins = db.execute("SELECT count(*) FROM auth_users WHERE role='admin' AND enabled=1").fetchone()[0]
                 if old["role"] == "admin" and old["enabled"] and admins <= 1 and (role != "admin" or not enabled):
                     raise HTTPException(409, "不能停用或降级最后一个管理员")
-                db.execute("UPDATE auth_users SET password=?,role=?,domains=?,enabled=?,version=version+1 WHERE username=?", (hashed or old["password"], role, json.dumps(sorted(set(domains))), int(enabled), username))
+                db.execute("UPDATE auth_users SET password=?,role=?,domains=?,enabled=?,scopes=?,version=version+1 WHERE username=?", (hashed or old["password"], role, json.dumps(sorted(set(domains))), int(enabled), json.dumps({"assets": assets, "sources": sources}, separators=(",", ":")), username))
                 db.execute("DELETE FROM auth_sessions WHERE username=?", (username,))
             self.audit(db, actor, "user_create" if create else "user_update", username)
+
+    @staticmethod
+    def validate_scopes(assets, sources, role):
+        normalized = []
+        for values in (assets, sources):
+            selected = sorted(set(values or []))
+            if not selected or len(selected) > 500 or any(not isinstance(value, str) or not value or len(value) > 200 for value in selected):
+                raise HTTPException(422, "资产和来源范围必须是 1 至 500 个非空标识")
+            if "*" in selected and selected != ["*"]:
+                raise HTTPException(422, "全范围标记不能与其他标识同时使用")
+            normalized.append(selected)
+        if role == "admin" and (normalized[0] != ["*"] or normalized[1] != ["*"]):
+            raise HTTPException(422, "管理员必须拥有完整资产和来源范围")
+        return tuple(normalized)
 
 
 @lru_cache(maxsize=4)
@@ -299,6 +322,21 @@ def require_domain(principal: Principal, *domains: str):
         raise HTTPException(403, "没有访问此数据范围的权限")
 
 
+def require_scope(principal: Principal | None, scope: str, identifier: str) -> None:
+    if not auth_enabled() or principal is None:
+        return
+    values = principal.assets if scope == "asset" else principal.sources
+    if "*" not in values and identifier not in values:
+        raise HTTPException(404, "资源不存在或当前账号无权访问")
+
+
+def has_full_scope(principal: Principal | None, scope: str) -> bool:
+    if not auth_enabled() or principal is None:
+        return True
+    values = principal.assets if scope == "asset" else principal.sources
+    return "*" in values
+
+
 def authorize(principal: Principal, path: str, method: str):
     if path.startswith("/api/internal/"):
         if not principal.service or principal.username != "alert" or path != "/api/internal/alert-states":
@@ -316,15 +354,25 @@ def authorize(principal: Principal, path: str, method: str):
         return
     if path.startswith("/api/alert-rules"):
         require_domain(principal, "market")
+        if not has_full_scope(principal, "asset"):
+            raise HTTPException(403, "全市场预警规则仅面向全资产范围账号")
         if method not in {"GET", "HEAD"} and principal.role != "admin":
             raise HTTPException(403, "只有管理员可以修改预警规则")
         return
     if path.startswith("/api/data/"):
         require_domain(principal, "catalog")
+        if path == "/api/data/version" and not has_full_scope(principal, "source"):
+            raise HTTPException(403, "来源范围受限账号不可查看全局数据版本")
     elif path.startswith("/api/replay/") or path.startswith("/ws/") or path in {"/api/kafka/status", "/api/flink/status", "/api/home/summary"}:
         require_domain(principal, "market", "catalog")
+        if not has_full_scope(principal, "asset"):
+            raise HTTPException(403, "历史回放和全市场状态仅面向全资产范围账号")
+        if path == "/api/home/summary" and not has_full_scope(principal, "source"):
+            raise HTTPException(403, "来源范围受限账号不可查看全局首页摘要")
     elif path.startswith(("/api/assets", "/api/regimes", "/api/features", "/api/alerts")):
         require_domain(principal, "market")
+        if not path.startswith("/api/assets") and not has_full_scope(principal, "asset"):
+            raise HTTPException(403, "全市场模型、状态和预警仅面向全资产范围账号")
     elif path not in {"/graphql", "/graphql/", "/docs", "/openapi.json", "/docs/oauth2-redirect", "/api/health", "/api/health/ready"}:
         raise HTTPException(403, "未授权的接口")
     if method not in {"GET", "HEAD", "WEBSOCKET"} and path != "/graphql":
