@@ -10,7 +10,7 @@ router = APIRouter(tags=["market"])
 
 
 @router.get("/api/assets")
-def assets(request: Request):
+async def assets(request: Request):
     principal = getattr(request.state, "principal", None)
     values = current_service(request).assets()
     if principal is None or "*" in principal.assets:
@@ -28,7 +28,7 @@ def asset_series(code: str, request: Request, limit: int = QueryParam(500, ge=1,
 
 
 @router.get("/api/regimes/latest")
-def latest_regime(request: Request):
+async def latest_regime(request: Request):
     return current_service(request).latest_state()
 
 
@@ -55,7 +55,7 @@ def latest_features(request: Request):
 
 
 @router.get("/api/alerts")
-def alerts(request: Request, limit: int = QueryParam(100, ge=1, le=1000)):
+async def alerts(request: Request, limit: int = QueryParam(100, ge=1, le=1000)):
     return list(reversed(current_service(request).alerts[-limit:]))
 
 

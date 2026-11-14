@@ -165,8 +165,11 @@ class GovernanceMiddleware:
             event = await receive()
             if event["type"] == "websocket.receive":
                 try:
-                    incoming = await asyncio.to_thread(self.limiter.check, identity, "message")
-                    if incoming.allowed:
+                    if self.limiter.client is None:
+                        incoming_allowed = self.limiter.check(identity, "message").allowed
+                    else:
+                        incoming_allowed = (await asyncio.to_thread(self.limiter.check, identity, "message")).allowed
+                    if incoming_allowed:
                         return event
                     await reject(429, "订阅消息过于频繁")
                 except RedisError:
@@ -176,7 +179,14 @@ class GovernanceMiddleware:
 
         try:
             try:
-                decision = await asyncio.to_thread(self.limiter.check, identity, category)
+                governance_started = time.perf_counter()
+                try:
+                    if self.limiter.client is None:
+                        decision = self.limiter.check(identity, category)
+                    else:
+                        decision = await asyncio.to_thread(self.limiter.check, identity, category)
+                finally:
+                    scope.setdefault("state", {})["governance_ms"] = (time.perf_counter() - governance_started) * 1000
             except RedisError:
                 return await reject(503, "限流服务暂时不可用，请稍后重试")
             if not decision.allowed:

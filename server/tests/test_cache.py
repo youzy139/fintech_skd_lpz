@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from redis.exceptions import RedisError
 
+from app.core.config import load_config
 from app.core.resilience import CircuitBreaker
 from app.services.cache import CachedCatalogStore, LocalJsonCache, RedisJsonCache
 from app.services.catalog import CatalogStore
+from app.services.catalog_factory import create_catalog
 from market_core.domain.sources import SourceFile
 
 
@@ -131,6 +134,40 @@ def test_large_offsets_bypass_cache_and_ttl_is_validated(tmp_path: Path):
             RedisJsonCache(client, "test", 0)
     finally:
         cached.close()
+
+
+def test_local_only_catalog_cache_uses_versioned_reads_without_redis(tmp_path):
+    store = CatalogStore(tmp_path / "catalog.db")
+    store.import_file(make_source(tmp_path, [("2024-01-01", "AI")]))
+    cached = CachedCatalogStore(store, None, LocalJsonCache(128, 15), namespace="test:local")
+    try:
+        first = cached.summary()
+        first["total_records"] = -1
+        assert cached.summary()["total_records"] == 1
+        assert cached.cache_stats["local"]["hits"] == 1
+        assert cached.cache_stats["shared"] == {"enabled": False}
+        cached.import_file(make_source(tmp_path, [("2024-01-01", "AI"), ("2024-01-02", "半导体")]))
+        assert cached.summary()["total_records"] == 2
+    finally:
+        cached.close()
+
+
+def test_factory_enables_local_cache_without_redis_and_honors_opt_out(monkeypatch, tmp_path):
+    config = replace(load_config(), database_path=tmp_path / "catalog.db")
+    monkeypatch.setenv("CATALOG_LOCAL_CACHE_ENABLED", "true")
+    cached = create_catalog(config)
+    try:
+        assert isinstance(cached, CachedCatalogStore)
+        assert cached.cache is None
+        assert cached.local is not None
+    finally:
+        cached.close()
+    monkeypatch.setenv("CATALOG_LOCAL_CACHE_ENABLED", "false")
+    uncached = create_catalog(config)
+    try:
+        assert type(uncached) is CatalogStore
+    finally:
+        uncached.close()
 
 
 def test_circuit_prevents_repeated_dns_and_recovers_after_cooldown(tmp_path):

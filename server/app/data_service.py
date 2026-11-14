@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.api.data import router as data_router
-from app.core.config import load_config
+from app.core.config import configure_thread_pool_from_env, load_config
 from app.core.auth import install_auth
 from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, install_error_handlers
@@ -21,6 +21,7 @@ def create_data_app(service: DataCatalogService | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        configure_thread_pool_from_env()
         app.state.service = service or DataCatalogService(config)
         try:
             yield

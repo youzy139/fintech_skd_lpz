@@ -8,7 +8,7 @@ from collections import deque
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from threading import RLock
-from time import monotonic
+from time import monotonic, perf_counter
 from typing import Any
 from uuid import uuid4
 
@@ -65,6 +65,8 @@ class RequestMetrics:
         self.started_at = datetime.now(timezone.utc)
         self.lock = RLock()
         self.routes: dict[tuple[str, str], deque[float]] = {}
+        self.auth_routes: dict[tuple[str, str], deque[float]] = {}
+        self.governance_routes: dict[tuple[str, str], deque[float]] = {}
         self.route_counts: dict[tuple[str, str], int] = {}
         self.request_count = 0
         self.error_count = 0
@@ -72,12 +74,18 @@ class RequestMetrics:
         self.websocket_connections = 0
         self.websocket_connections_total = 0
 
-    def record(self, method: str, route: str, status: int, duration_ms: float) -> None:
+    def record(self, method: str, route: str, status: int, duration_ms: float, auth_ms: float | None = None, governance_ms: float | None = None) -> None:
         key = (method, route)
         with self.lock:
             if key not in self.routes:
                 self.routes[key] = deque(maxlen=self.capacity)
             self.routes[key].append(duration_ms)
+            for values, duration in ((self.auth_routes, auth_ms), (self.governance_routes, governance_ms)):
+                if duration is None:
+                    continue
+                if key not in values:
+                    values[key] = deque(maxlen=self.capacity)
+                values[key].append(duration)
             self.route_counts[key] = self.route_counts.get(key, 0) + 1
             self.request_count += 1
             self.error_count += int(status >= 400)
@@ -98,6 +106,8 @@ class RequestMetrics:
             for key, durations in self.routes.items():
                 method, route = key
                 values = list(durations)
+                auth_values = list(self.auth_routes.get(key, []))
+                governance_values = list(self.governance_routes.get(key, []))
                 routes.append({
                     "method": method,
                     "route": route,
@@ -108,6 +118,12 @@ class RequestMetrics:
                     "p95_ms": percentile(values, 0.95),
                     "p99_ms": percentile(values, 0.99),
                     "max_ms": round(max(values), 3),
+                    "auth_p50_ms": percentile(auth_values, 0.5),
+                    "auth_p95_ms": percentile(auth_values, 0.95),
+                    "auth_p99_ms": percentile(auth_values, 0.99),
+                    "governance_p50_ms": percentile(governance_values, 0.5),
+                    "governance_p95_ms": percentile(governance_values, 0.95),
+                    "governance_p99_ms": percentile(governance_values, 0.99),
                 })
             return {
                 "scope": "process",
@@ -127,7 +143,7 @@ def build_request_middleware(metrics: RequestMetrics, requests: dict[str, deque[
         incoming = request.headers.get("X-Request-ID", "")
         request_id = incoming if REQUEST_ID_PATTERN.fullmatch(incoming) else uuid4().hex
         token = request_id_context.set(request_id)
-        started = monotonic()
+        started = perf_counter()
         status = 500
         try:
             try:
@@ -142,10 +158,10 @@ def build_request_middleware(metrics: RequestMetrics, requests: dict[str, deque[
             response.headers["X-Request-ID"] = request_id
             return response
         finally:
-            duration_ms = (monotonic() - started) * 1000
+            duration_ms = (perf_counter() - started) * 1000
             route = request.scope.get("route")
             route_path = getattr(route, "path", "unmatched")
-            metrics.record(request.method, route_path, status, duration_ms)
+            metrics.record(request.method, route_path, status, duration_ms, getattr(request.state, "auth_verification_ms", None), getattr(request.state, "governance_ms", None))
             fields = {
                 "request_id": request_id,
                 "method": request.method,

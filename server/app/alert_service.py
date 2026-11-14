@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from app.api.contracts import RuleRequest
-from app.core.config import load_config
+from app.core.config import configure_thread_pool_from_env, load_config
 from app.core.auth import auth_enabled, auth_store, has_full_scope, install_auth
 from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, error_response, install_error_handlers
@@ -32,6 +32,7 @@ def create_alert_app(service: AlertService | None = None, initialize: bool = Tru
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        configure_thread_pool_from_env()
         app.state.service = service or AlertService(config)
         if initialize:
             await asyncio.to_thread(app.state.service.initialize)
@@ -54,7 +55,7 @@ def create_alert_app(service: AlertService | None = None, initialize: bool = Tru
         return error_response(503, "feature_service_unavailable", "特征与状态服务暂时不可用", "特征与状态服务暂时不可用", {"Retry-After": "5"})
 
     @app.get("/api/alerts", tags=["alerts"])
-    def alerts(request: Request, limit: int = Query(100, ge=1, le=1000)):
+    async def alerts(request: Request, limit: int = Query(100, ge=1, le=1000)):
         return request.app.state.service.list_alerts(limit)
 
     @app.get("/api/alerts/{rule}/{event_date}", tags=["alerts"])

@@ -23,7 +23,7 @@ from app.api.dependencies import replay_session
 from app.api.market import router as market_router
 from app.api.replay import router as replay_router
 from app.api.system import router as system_router
-from app.core.config import load_config
+from app.core.config import configure_thread_pool_from_env, load_config
 from app.core.auth import auth_enabled, has_full_scope, install_auth, require_domain
 from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, current_request_id, error_response, install_error_handlers
@@ -87,6 +87,7 @@ def create_app(service: Any | None = None, initialize: bool = True, replay_store
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        configure_thread_pool_from_env()
         app.state.alert_service = None
         if service is not None:
             app.state.service = service

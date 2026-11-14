@@ -118,6 +118,10 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     assert client.post("/graphql", json={"query": "{ sourceSummary }"}, headers=catalog).json()["data"]["sourceSummary"]["total_records"] == 2
     analyst = bearer(create_user(store, "analyst", "analyst"))
     assert client.post("/api/replay/sessions", json={"start_date": "2024-01-01", "end_date": "2024-01-02"}, headers=analyst).status_code == 201
+    metrics = client.get("/api/system/metrics").json()
+    asset_metrics = next(item for item in metrics["routes"] if item["route"] == "/api/assets")
+    assert asset_metrics["auth_p95_ms"] is not None
+    assert asset_metrics["governance_p95_ms"] is not None
 
 
 def test_jwt_verification_revocation_and_admin_invariants(secured):

@@ -13,9 +13,12 @@ def create_catalog(config: AppConfig) -> CatalogStorage:
         catalog: CatalogStorage = ClickHouseCatalogStore(config.clickhouse)
     else:
         catalog = CatalogStore(config.database_path)
+    local = local_cache_from_environment(config.redis["ttl_seconds"])
     if config.redis.get("enabled", False):
         shared = RedisJsonCache.from_config(config.redis)
-        return CachedCatalogStore(catalog, shared, local_cache_from_environment(shared.ttl_seconds))
+        return CachedCatalogStore(catalog, shared, local)
+    if local is not None:
+        return CachedCatalogStore(catalog, None, local, namespace=config.redis["namespace"])
     return catalog
 
 

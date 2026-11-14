@@ -8,6 +8,7 @@ import pytest
 
 from app.core.config import load_config
 from app.services.catalog import CatalogStore
+from app.services.cache import CachedCatalogStore
 from app.services.clickhouse_store import ClickHouseCatalogStore
 from app.services.market import MarketService
 from app.services.online_publish import OnlinePublisher
@@ -126,7 +127,8 @@ def test_explicit_distributed_config_selects_clickhouse(tmp_path: Path, monkeypa
     service = MarketService(config)
     try:
         assert config.clickhouse["host"] == "clickhouse"
-        assert isinstance(service.catalog, ClickHouseCatalogStore)
+        assert isinstance(service.catalog, CachedCatalogStore)
+        assert isinstance(service.catalog.delegate, ClickHouseCatalogStore)
     finally:
         service.close()
     monkeypatch.setenv("CLICKHOUSE_ENABLED", "false")

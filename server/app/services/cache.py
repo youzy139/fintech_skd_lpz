@@ -127,13 +127,28 @@ class RedisJsonCache:
 
 
 class CachedCatalogStore:
-    def __init__(self, delegate: CatalogStorage, cache: RedisJsonCache, local: LocalJsonCache | None = None):
+    def __init__(self, delegate: CatalogStorage, cache: RedisJsonCache | None, local: LocalJsonCache | None = None, namespace: str | None = None):
+        if cache is None and local is None:
+            raise ValueError("至少需要一个目录缓存层")
         self.delegate = delegate
         self.cache = cache
         self.local = local
+        self.namespace = cache.namespace if cache else (namespace or "marketlens:catalog:local")
 
     @property
     def cache_stats(self) -> dict[str, Any]:
+        if self.cache is None:
+            return {
+                "hits": 0,
+                "misses": 0,
+                "writes": 0,
+                "errors": 0,
+                "namespace": self.namespace,
+                "ttl_seconds": self.local.ttl_seconds if self.local else None,
+                "circuit": None,
+                "local": self.local.snapshot() if self.local else {"enabled": False},
+                "shared": {"enabled": False},
+            }
         return {
             **self.cache.stats,
             "namespace": self.cache.namespace,
@@ -147,19 +162,21 @@ class CachedCatalogStore:
         return self.delegate.data_version()
 
     def _cached(self, method: str, arguments: Any, loader: Callable[[], Any]) -> Any:
-        identity = json.dumps([self.cache.namespace, self.data_version(), method, arguments], ensure_ascii=False, sort_keys=True, default=str)
-        key = self.cache.namespace + ":" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        identity = json.dumps([self.namespace, self.data_version(), method, arguments], ensure_ascii=False, sort_keys=True, default=str)
+        key = self.namespace + ":" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
         if self.local:
             hit, value = self.local.get(key)
             if hit:
                 return value
-        cached = self.cache.get(key)
-        if cached is not None:
-            if self.local:
-                self.local.set(key, cached)
-            return cached
+        if self.cache is not None:
+            cached = self.cache.get(key)
+            if cached is not None:
+                if self.local:
+                    self.local.set(key, cached)
+                return cached
         result = loader()
-        self.cache.set(key, result)
+        if self.cache is not None:
+            self.cache.set(key, result)
         if self.local:
             self.local.set(key, result)
         return result
@@ -203,12 +220,13 @@ class CachedCatalogStore:
         try:
             self.delegate.close()
         finally:
-            self.cache.close()
+            if self.cache is not None:
+                self.cache.close()
 
 
 def local_cache_from_environment(redis_ttl_seconds: int) -> LocalJsonCache | None:
     if os.getenv("CATALOG_LOCAL_CACHE_ENABLED", "true").lower() != "true":
         return None
     entries = int(os.getenv("CATALOG_LOCAL_CACHE_ENTRIES", "128"))
-    ttl = int(os.getenv("CATALOG_LOCAL_CACHE_TTL_SECONDS", str(min(15, redis_ttl_seconds))))
+    ttl = int(os.getenv("CATALOG_LOCAL_CACHE_TTL_SECONDS", str(min(15, int(redis_ttl_seconds)))))
     return LocalJsonCache(entries, ttl)

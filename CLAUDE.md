@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-MarketLens 是 2026 年上海科技大学金融科技竞赛项目：多资产行情 → 特征 → walk-forward 市场状态 → 确定性规则预警 → Web 展示/历史回放的监控与研究平台。当前源码与工件声明为 **v0.4.4 测试版**，不是 v1.0.0，也不是实时行情、高可用或可暴露公网的生产系统。项目约束、数据口径和验收规则的完整版本见 `AGENTS.md`，本文件是面向编码的补充摘要；两者冲突时以 `AGENTS.md` 为准。
+MarketLens 是 2026 年上海科技大学金融科技竞赛项目：多资产行情 → 特征 → walk-forward 市场状态 → 确定性规则预警 → Web 展示/历史回放的监控与研究平台。当前源码与工件声明为 **v0.5.0 测试版**，不是 v1.0.0，也不是实时行情、高可用或可暴露公网的生产系统。项目约束、数据口径和验收规则的完整版本见 `AGENTS.md`，本文件是面向编码的补充摘要；两者冲突时以 `AGENTS.md` 为准。
 
 核心红线：
 
@@ -12,7 +12,7 @@ MarketLens 是 2026 年上海科技大学金融科技竞赛项目：多资产行
 - 数值特征与状态必须由模型计算，预警必须由确定性规则产生；LLM 不能决定状态、预警等级或回放结果。
 - 不得把历史回放描述为实时流，不得把局部基准外推为正式性能/金融效果，不得编造验收结果或用户反馈。未实际运行的检查必须明确说未运行。
 - 文档与提交说明使用中文，提交沿用 Conventional Commits 风格。
-- 每批编译和检查后必须复用固定验收网址并打开网站，当前合成预览固定为前端 `5174`、后端 `18000`，不得新增预览端口；先检查进程归属，E2E 与手动预览不得同时占用这组端口。
+- 每批编译和检查后必须复用固定验收网址并打开网站，当前合成预览固定为前端 `5174`、后端 `18000`，不得新增预览端口；先检查进程归属，E2E 与手动预览不得同时占用这组端口。用户已授权停止经命令行核实属于本项目、由我们启动的预览进程以完成检查，随后同端口重启；前端优先直接启动 Vite 的 node 入口，避免 npm 子进程残留。
 - 每批已汇报并获初步验收的功能/修复才提交推送，并同步递增版本与标签；纯文档不升版。用户说“继续开发”即视为前一批已初步验收，不重复索要确认。
 - 升版须同步 `web/package.json`、`web/package-lock.json`、`server/app/version.py`、`flink/pom.xml` 及 `compose.yaml` / `compose.flink.yaml` 中的镜像标签；`scripts/check_versions.py` 以 Web 包版本为基准核对。
 
@@ -44,6 +44,9 @@ DATA_SERVICE_URL=http://127.0.0.1:8001 FEATURE_SERVICE_URL=http://127.0.0.1:8002
 PYTHONUTF8=1 conda run -n fintech python -m pytest --cov=market_core --cov=server/app --cov-report=term-missing --cov-fail-under=30 server/tests
 PYTHONUTF8=1 conda run -n fintech python -m pytest server/tests/test_models.py
 PYTHONUTF8=1 conda run -n fintech python -m pytest server/tests/test_models.py::test_walk_forward_history_does_not_change_when_future_is_appended
+
+# 101 独立合成用户真实 HTTP 基准（固定 18000，被占用时先停止所属预览）
+PYTHONUTF8=1 conda run -n fintech python server/benchmarks/independent_user_performance.py --output server/data/benchmarks/independent-users.json
 
 # 前端测试 / 构建
 cd web && npm test
@@ -116,7 +119,8 @@ docs/                   架构、数据口径、专项验收、发布记录与�
 - `DATA_SERVICE_URL`、`FEATURE_SERVICE_URL`、`ALERT_SERVICE_URL` 决定是否走远程服务；独立预警服务必须设置 `FEATURE_SERVICE_URL`，需要背景证据时同时设置 `DATA_SERVICE_URL`。远程 HTTP 调用有界超时，不做无界自动重试，失败返回明确 503。
 - `AUTH_ENABLED` 本地默认 `false`，Compose 固定 `true`；角色 `observer` / `analyst` / `admin`，功能域 `market` / `catalog`，另有账号级资产/来源 ID 白名单。
 - 多服务模式必须保持一致的认证开关、身份库和签名信任域，直接访问 8001–8003 也不能绕过鉴权。首次启用认证没有默认账号；一次性初始化凭据写入身份库旁的 `auth-bootstrap.txt`，创建首位管理员后删除，不得提交、截图、记录或在回复中复述。
-- `RATE_LIMIT_MODE=local|redis`；WebSocket 与回放计算使用带续租和过期时间的租约。
+- `RATE_LIMIT_MODE=local|redis`；WebSocket 与回放计算使用带续租和过期时间的租约。本地内存限流直接在事件循环执行，Redis 限流保留线程池隔离。
+- 目录进程内 LRU 默认启用，即使没有 Redis；`CATALOG_LOCAL_CACHE_ENABLED=false` 可关闭。`SERVER_THREAD_POOL_SIZE=1..256` 仅在显式设置时调整 AnyIO 工作线程，默认 40。
 - 密码和密钥只通过环境变量或被忽略的私有配置注入，不得进入源码、文档、命令、日志、测试夹具或 Git 历史。
 
 ## 核心数据与算法口径

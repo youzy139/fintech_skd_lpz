@@ -422,8 +422,11 @@ class AuthMiddleware:
             if not public:
                 if not token:
                     raise HTTPException(401, "请先登录", headers={"WWW-Authenticate": "Bearer"})
+                verification_started = time.perf_counter()
+                state = scope.setdefault("state", {})
                 principal = await asyncio.to_thread(auth_store().verify, token)
-                scope.setdefault("state", {})["principal"] = principal
+                state["auth_verification_ms"] = (time.perf_counter() - verification_started) * 1000
+                state["principal"] = principal
                 authorize(principal, path, method)
                 token_context = authorization_context.set("Bearer " + token)
             if scope["type"] == "websocket" and not public:

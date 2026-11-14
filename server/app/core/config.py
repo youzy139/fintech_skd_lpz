@@ -6,7 +6,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import anyio.to_thread
+
 SERVER_ROOT = Path(__file__).resolve().parents[2]
+
+
+def configure_thread_pool_from_env() -> None:
+    configured = os.getenv("SERVER_THREAD_POOL_SIZE")
+    if configured is None:
+        return
+    try:
+        size = int(configured)
+    except ValueError as error:
+        raise ValueError("SERVER_THREAD_POOL_SIZE 必须是 1～256 的整数") from error
+    if not 1 <= size <= 256:
+        raise ValueError("SERVER_THREAD_POOL_SIZE 必须是 1～256 的整数")
+    anyio.to_thread.current_default_thread_limiter().total_tokens = size
 
 
 @dataclass(frozen=True)
