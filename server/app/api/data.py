@@ -73,9 +73,9 @@ def source_files(request: Request, kind: str | None = None, query: str | None = 
 
 
 @router.get("/api/data/files/{source_id}/records")
-def source_records(source_id: str, request: Request, query: str | None = None, date: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
+def source_records(source_id: str, request: Request, query: str | None = None, date: str | None = None, kind: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
     require_scope(getattr(request.state, "principal", None), "source", source_id)
-    return current_service(request).source_records(source_id, query, date, offset, limit, tag=tag, tags=tags, match=match)
+    return current_service(request).source_records(source_id, query, date, offset, limit, kind=kind, tag=tag, tags=tags, match=match)
 
 
 @router.get("/api/data/files/{source_id}/governance")

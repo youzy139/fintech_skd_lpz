@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Collection
 
 from app.core.config import AppConfig
 from app.core.serialization import json_compatible
@@ -76,9 +76,9 @@ class MarketService:
         self.rebuild_alerts()
         return result
 
-    def alert_evidence(self, rule: str, event_date: str) -> dict[str, Any]:
+    def alert_evidence(self, rule: str, event_date: str, allowed_sources: Collection[str] | None = None) -> dict[str, Any]:
         evidence = alert_evidence(self.states, self.alerts, rule, event_date, self.rule_manager.current()["settings"])
-        return attach_context(evidence, getattr(self, "catalog", None))
+        return attach_context(evidence, getattr(self, "catalog", None), allowed_sources=allowed_sources)
 
     def assets(self) -> list[dict]:
         return [{"category": item.meta.category, "name": item.meta.name, "code": item.meta.code, "field": item.meta.field, "calendar": item.meta.calendar, "start": item.frame["date"].min().strftime("%Y-%m-%d"), "end": item.frame["date"].max().strftime("%Y-%m-%d"), "rows": len(item.frame)} for item in self.series]

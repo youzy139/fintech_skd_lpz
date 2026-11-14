@@ -83,7 +83,7 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - run: mvn -B -ntp -DskipTests package
+      - run: mvn -B -ntp package
         working-directory: flink
 
   containers:

@@ -70,3 +70,44 @@ def test_no_previous_state_or_catalog_never_fabricates_context():
     assert attach_context(evidence, None)["context"]["status"] == "no_previous_state"
     evidence = {"previous_state": {"date": "2024-02-29"}}
     assert attach_context(evidence, None)["context"]["status"] == "disabled"
+
+
+class AllowlistCatalog:
+    def __init__(self):
+        self.calls = []
+
+    def list_records(self, source_id, query, date, offset, limit, kind=None, **kwargs):
+        self.calls.append((source_id, kind, date, offset, limit))
+        expected = {"calendar": {"calendar-a", "calendar-b"}, "publication": {"publication-a"}}
+        if source_id not in expected[kind]:
+            return {"total": 0, "items": []}
+        payload = {"OccurDate": date, "OccurTime": "09:30"} if kind == "calendar" else {"日期": date}
+        return {
+            "total": 2 if source_id == "calendar-a" else 1,
+            "items": [{
+                "source_id": source_id,
+                "record_index": 1,
+                "source_path": source_id + ".csv",
+                "kind": kind,
+                "event_date": date,
+                "title": source_id,
+                "payload": payload,
+                "tags": [],
+            }],
+        }
+
+
+def test_context_allowlist_never_queries_or_aggregates_other_sources():
+    catalog = AllowlistCatalog()
+    allowed = {"calendar-a", "calendar-b", "publication-a", "unrelated"}
+    evidence = attach_context({"previous_state": {"date": "2024-02-29"}}, catalog, limit=2, allowed_sources=allowed)
+
+    assert catalog.calls
+    assert {call[0] for call in catalog.calls} == allowed
+    assert all(call[0] is not None and call[2] == "2024-02-29" for call in catalog.calls)
+    assert evidence["context"]["source_scope"] == "allowlist"
+    calendar, publication = evidence["context"]["sources"]
+    assert calendar["total"] == 3
+    assert [item["record_id"] for item in calendar["items"]] == ["calendar-a:1", "calendar-b:1"]
+    assert publication["total"] == 1
+    assert [item["record_id"] for item in publication["items"]] == ["publication-a:1"]

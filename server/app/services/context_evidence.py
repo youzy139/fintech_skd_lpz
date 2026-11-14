@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Collection
 
 from app.services.contracts import CatalogReader
 
@@ -33,7 +33,20 @@ def _public_item(item: dict[str, Any], kind: str) -> dict[str, Any]:
     }
 
 
-def attach_context(evidence: dict[str, Any], catalog: CatalogReader | None, limit: int = 6) -> dict[str, Any]:
+def _context_page(catalog: CatalogReader, kind: str, cutoff: str, limit: int, allowed_sources: Collection[str] | None) -> dict[str, Any]:
+    if allowed_sources is None:
+        return catalog.list_records(None, None, cutoff, 0, limit, kind=kind)
+    total = 0
+    items: list[dict[str, Any]] = []
+    for source_id in sorted(set(allowed_sources)):
+        page = catalog.list_records(source_id, None, cutoff, 0, limit, kind=kind)
+        total += int(page["total"])
+        items.extend(page["items"])
+    items.sort(key=lambda item: (item["source_id"], -item["record_index"]))
+    return {"total": total, "items": items[:limit]}
+
+
+def attach_context(evidence: dict[str, Any], catalog: CatalogReader | None, limit: int = 6, allowed_sources: Collection[str] | None = None) -> dict[str, Any]:
     previous = evidence.get("previous_state")
     cutoff = previous["date"] if previous else None
     context: dict[str, Any] = {
@@ -42,7 +55,10 @@ def attach_context(evidence: dict[str, Any], catalog: CatalogReader | None, limi
         "description": "只读取预警日前一状态日已经存在的公开背景；不关联当天或未来记录，不用于改变状态与预警。",
         "sources": [],
         "excluded": EXCLUDED_TYPES,
+        "source_scope": "all" if allowed_sources is None else "allowlist",
     }
+    if allowed_sources is not None:
+        context["description"] += " 仅统计当前账号白名单内的来源。"
     if not cutoff:
         context["status"] = "no_previous_state"
         evidence["context"] = context
@@ -54,7 +70,7 @@ def attach_context(evidence: dict[str, Any], catalog: CatalogReader | None, limi
     context["status"] = "ok"
     for kind in SOURCE_TYPES:
         try:
-            page = catalog.list_records(None, None, cutoff, 0, limit, kind=kind)
+            page = _context_page(catalog, kind, cutoff, limit, allowed_sources)
             context["sources"].append({
                 "kind": kind,
                 "status": "ok",

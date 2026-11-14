@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Collection
 
 from app.core.config import AppConfig
 from app.services.alert_rules import AlertRuleManager
@@ -57,9 +57,9 @@ class AlertService:
         self.rebuild_alerts()
         return result
 
-    def alert_evidence(self, rule: str, event_date: str) -> dict[str, Any]:
+    def alert_evidence(self, rule: str, event_date: str, allowed_sources: Collection[str] | None = None) -> dict[str, Any]:
         evidence = build_alert_evidence(self.states, self.alerts, rule, event_date, self.rule_manager.current()["settings"])
-        return attach_context(evidence, self.catalog)
+        return attach_context(evidence, self.catalog, allowed_sources=allowed_sources)
 
     def health_details(self) -> dict[str, Any]:
         return {"states": self.state_count, "alerts": len(self.alerts), "latest_state_date": self.latest_state_date, "rule_version": self.rule_manager.current()["version"]}

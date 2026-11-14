@@ -2,12 +2,14 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.marketlens</groupId>
   <artifactId>marketlens-flink</artifactId>
-  <version>0.4.3</version>
+  <version>0.4.4</version>
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <flink.version>2.2.1</flink.version>
     <jackson.version>2.18.2</jackson.version>
+    <caffeine.version>3.2.0</caffeine.version>
+    <junit.version>5.11.4</junit.version>
   </properties>
   <dependencies>
     <dependency>
@@ -42,10 +44,26 @@
       <artifactId>jackson-databind</artifactId>
       <version>${jackson.version}</version>
     </dependency>
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+      <version>${caffeine.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
   <build>
     <finalName>marketlens-flink</finalName>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.2</version>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>

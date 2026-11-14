@@ -62,7 +62,10 @@ def alerts(request: Request, limit: int = QueryParam(100, ge=1, le=1000)):
 @router.get("/api/alerts/{rule}/{event_date}")
 def alert_evidence(rule: str, event_date: str, request: Request):
     try:
-        return current_service(request).alert_evidence(rule, event_date)
+        principal = getattr(request.state, "principal", None)
+        if has_full_scope(principal, "source"):
+            return current_service(request).alert_evidence(rule, event_date)
+        return current_service(request).alert_evidence(rule, event_date, principal.sources)
     except KeyError:
         raise HTTPException(404, "未找到该预警或对应证据") from None
 

@@ -206,6 +206,24 @@ def test_asset_and_source_scopes_filter_resources_and_block_aggregates(secured):
     assert saved["sources"] == ["source"]
 
 
+def test_alert_evidence_receives_only_the_callers_source_allowlist(secured):
+    client, store, code = secured
+    bootstrap(client, code)
+    store.save_user("admin", "evidence-reader", PASSWORD, "observer", ["market", "catalog"], True, ["*"], ["source"], create=True)
+    token = store.login("evidence-reader", PASSWORD)
+    calls = []
+
+    def evidence(rule, event_date, allowed_sources=None):
+        calls.append((rule, event_date, allowed_sources))
+        return {"rule": rule, "event_time": event_date, "context": {"source_scope": "allowlist"}}
+
+    client.app.state.service.alert_evidence = evidence
+    response = client.get("/api/alerts/HIGH_VOLATILITY/2024-01-02", headers=bearer(token))
+    assert response.status_code == 200
+    assert response.json()["context"]["source_scope"] == "allowlist"
+    assert calls == [("HIGH_VOLATILITY", "2024-01-02", frozenset({"source"}))]
+
+
 def test_scope_filtered_catalog_cache_does_not_leak_across_accounts(secured):
     client, store, code = secured
     bootstrap(client, code)
@@ -271,6 +289,12 @@ def test_websocket_auth_origin_logout_and_permission_revocation(secured):
         assert closed.value.code == 4401
     limited = create_user(store, "no-catalog", domains=("market",))
     with client.websocket_connect("/ws/replay/missing", headers=bearer(limited)) as ws:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+        assert closed.value.code == 4403
+    store.save_user("admin", "limited-assets", PASSWORD, "observer", ["market", "catalog"], True, ["TEST"], ["*"], create=True)
+    limited_assets = store.login("limited-assets", PASSWORD)
+    with client.websocket_connect("/ws/replay/missing", headers=bearer(limited_assets)) as ws:
         with pytest.raises(WebSocketDisconnect) as closed:
             ws.receive_json()
         assert closed.value.code == 4403

@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from app.api.contracts import RuleRequest
 from app.core.config import load_config
-from app.core.auth import auth_enabled, auth_store, install_auth
+from app.core.auth import auth_enabled, auth_store, has_full_scope, install_auth
 from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, error_response, install_error_handlers
 from app.services.alert import AlertService
@@ -60,7 +60,10 @@ def create_alert_app(service: AlertService | None = None, initialize: bool = Tru
     @app.get("/api/alerts/{rule}/{event_date}", tags=["alerts"])
     def evidence(rule: str, event_date: str, request: Request):
         try:
-            return request.app.state.service.alert_evidence(rule, event_date)
+            principal = getattr(request.state, "principal", None)
+            if has_full_scope(principal, "source"):
+                return request.app.state.service.alert_evidence(rule, event_date)
+            return request.app.state.service.alert_evidence(rule, event_date, principal.sources)
         except KeyError:
             raise HTTPException(404, "未找到该预警或对应证据") from None
 

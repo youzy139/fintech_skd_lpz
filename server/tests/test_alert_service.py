@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import io
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,11 +13,15 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 import app.services.alert_proxy as alert_proxy_module
 from app.alert_service import create_alert_app
+from app.core.auth import auth_store, store_for
 from app.core.config import load_config
 from app.core.observability import request_id_context
+from app.data_service import create_data_app
 from app.main import create_app
 from app.services.alert import AlertService
+from app.services.alert_rules import AlertRuleManager
 from app.services.remote_alert import AlertServiceError, RemoteAlertClient
+from app.services.remote_catalog import RemoteCatalogClient
 from app.services.remote_feature import FeatureServiceError
 from market_core.models.alerts import generate_alerts
 
@@ -227,6 +232,78 @@ def test_alert_outage_does_not_break_market_but_fails_readiness(monkeypatch):
         assert ready.json()["checks"]["market"]["status"] == "ok"
         assert ready.json()["checks"]["catalog"]["status"] == "ok"
         assert ready.json()["checks"]["alerts"] == {"status": "unavailable"}
+
+
+def asgi_opener(client):
+    def open_request(request, timeout):
+        parsed = urlsplit(request.full_url)
+        path = parsed.path + (("?" + parsed.query) if parsed.query else "")
+        response = client.request(request.get_method(), path, headers=dict(request.headers), content=request.data)
+        if response.status_code >= 400:
+            raise HTTPError(request.full_url, response.status_code, response.text, response.headers, io.BytesIO(response.content))
+        return FakeResponse(response.content, response.status_code)
+    return open_request
+
+
+def test_scoped_context_survives_main_alert_and_data_service_hops(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setenv("AUTH_DATABASE_PATH", str(tmp_path / "auth.sqlite3"))
+    monkeypatch.setenv("FEATURE_SERVICE_URL", "http://feature-service:8000")
+    monkeypatch.setenv("ALERT_SERVICE_URL", "http://alert-service:8000")
+    password = "test-only-password-123"
+    allowed = ["calendar-allowed", "publication-allowed"]
+    store = auth_store()
+    store.save_user("admin", "context-reader", password, "observer", ["market", "catalog"], True, ["*"], allowed, create=True)
+    token = store.login("context-reader", password)
+    calls = []
+
+    def source_records(source_id, query, date, offset, limit, kind=None, tag=None, tags=None, match="any"):
+        calls.append((source_id, kind, date))
+        if source_id != kind + "-allowed":
+            return {"total": 0, "offset": offset, "limit": limit, "items": []}
+        payload = {"OccurDate": date, "OccurTime": "09:30"} if kind == "calendar" else {"日期": date}
+        item = {"source_id": source_id, "record_index": 1, "source_path": source_id + ".csv", "kind": kind, "event_date": date, "title": source_id, "payload": payload, "tags": []}
+        return {"total": 1, "offset": offset, "limit": limit, "items": [item]}
+
+    data_credentials = []
+    alert_credentials = []
+    alert = None
+    try:
+        with TestClient(create_data_app(SimpleNamespace(storage_mode="local", source_records=source_records))) as data_http:
+            def data_open(request, timeout):
+                data_credentials.append(request.get_header("Authorization"))
+                return asgi_opener(data_http)(request, timeout)
+
+            catalog = RemoteCatalogClient("http://data-service:8000", opener=data_open)
+            config = replace(load_config(), database_path=tmp_path / "alert-state.db")
+            rules = AlertRuleManager(tmp_path / "rules.db", config.alerts)
+            alert = AlertService(config, FakeFeatureClient(sample_states()), rules, catalog)
+            with TestClient(create_alert_app(alert)) as alert_http:
+                def alert_open(request, timeout):
+                    alert_credentials.append(request.get_header("Authorization"))
+                    return asgi_opener(alert_http)(request, timeout)
+
+                monkeypatch.setattr(alert_proxy_module, "urlopen", alert_open)
+                monkeypatch.setattr(main_module, "RemoteFeatureService", lambda config: remote_feature_stub())
+                monkeypatch.setattr(main_module, "RemoteAlertClient", lambda url, timeout: SimpleNamespace(readiness=lambda: {"status": "ok"}, close=lambda: None))
+                with TestClient(create_app(initialize=False)) as main_http:
+                    response = main_http.get("/api/alerts/HIGH_VOLATILITY/2024-03-01", headers={"Authorization": "Bearer " + token})
+                    assert data_http.get("/api/data/records", headers={"Authorization": "Bearer " + token}).status_code == 403
+                    assert data_http.get("/api/data/files/calendar-other/records?kind=calendar", headers={"Authorization": "Bearer " + token}).status_code == 404
+
+        assert response.status_code == 200, response.text
+        context = response.json()["context"]
+        assert context["source_scope"] == "allowlist"
+        assert [(source["kind"], source["total"]) for source in context["sources"]] == [("calendar", 1), ("publication", 1)]
+        assert [source["items"][0]["record_id"] for source in context["sources"]] == ["calendar-allowed:1", "publication-allowed:1"]
+        assert calls and {source_id for source_id, _, _ in calls} == set(allowed)
+        assert all(date == "2024-02-29" for _, _, date in calls)
+        assert alert_credentials == ["Bearer " + token]
+        assert data_credentials and set(data_credentials) == {"Bearer " + token}
+    finally:
+        if alert is not None:
+            alert.close()
+        store_for.cache_clear()
 
 
 @pytest.mark.parametrize("status,name,value", [(429, "Retry-After", "17"), (503, "Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT"), (401, "WWW-Authenticate", 'Bearer realm="marketlens"'), (405, "Allow", "GET")])

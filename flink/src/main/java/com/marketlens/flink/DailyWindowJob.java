@@ -47,6 +47,7 @@ public class DailyWindowJob {
         String runId = params.getRequired("runId");
         String groupId = params.get("groupId", "marketlens-flink-" + runId);
         long checkpointInterval = params.getLong("checkpointInterval", 5000L);
+        long dedupCacheEntries = params.getLong("dedupCacheEntries", 10000L);
         String checkpointDir = params.get("checkpointDir", "file:///" + System.getProperty("user.dir").replace("\\", "/") + "/server/data/flink/checkpoints");
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -89,7 +90,7 @@ public class DailyWindowJob {
                 .window(TumblingEventTimeWindows.of(Duration.ofDays(1)))
                 .allowedLateness(Duration.ofDays(2))
                 .sideOutputLateData(lateEvents)
-                .process(new DailyDedupWindow()).uid("daily-dedup-window");
+                .process(new DailyDedupWindow(dedupCacheEntries)).uid("daily-dedup-window");
 
         DataStream<String> output = windows.map(new JsonMapper()).uid("window-json");
         output.sinkTo(kafkaSink(brokers, outputTopic, "marketlens-day-window-v1-" + runId + "-")).uid("window-sink");
@@ -121,24 +122,23 @@ public class DailyWindowJob {
     }
 
     private static class DailyDedupWindow extends ProcessWindowFunction<MarketDayEvent, MarketDayEvent, String, TimeWindow> {
+        private final long dedupCacheEntries;
         private transient ValueState<HashSet<String>> seenEventIds;
+        private transient DailyEventDeduplicator deduplicator;
+
+        private DailyDedupWindow(long dedupCacheEntries) {
+            this.dedupCacheEntries = dedupCacheEntries;
+        }
 
         @Override
         public void open(OpenContext openContext) {
             seenEventIds = getRuntimeContext().getState(new ValueStateDescriptor<>("seen-event-ids", TypeInformation.of(new TypeHint<HashSet<String>>() {})));
+            deduplicator = new DailyEventDeduplicator(dedupCacheEntries);
         }
 
         @Override
         public void process(String key, Context context, Iterable<MarketDayEvent> elements, Collector<MarketDayEvent> out) throws Exception {
-            HashSet<String> seen = seenEventIds.value();
-            if (seen == null) seen = new HashSet<>();
-            MarketDayEvent result = null;
-            for (MarketDayEvent event : elements) {
-                if (!seen.add(event.eventId)) continue;
-                if (result != null) throw new IllegalArgumentException("Conflicting batches for " + key);
-                result = event;
-            }
-            seenEventIds.update(seen);
+            MarketDayEvent result = deduplicator.deduplicate(key, elements, seenEventIds::value, seenEventIds::update);
             if (result == null) return;
             result.payload.observations.sort(Comparator.comparing(observation -> observation.code));
             long assets = result.payload.observations.stream().map(observation -> observation.code).distinct().count();

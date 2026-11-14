@@ -3,7 +3,7 @@ WORKDIR /src
 COPY flink/pom.xml ./
 RUN mvn -B -ntp dependency:go-offline
 COPY flink/src ./src
-RUN mvn -B -ntp -DskipTests package
+RUN mvn -B -ntp package
 
 FROM apache/flink:2.2.1-scala_2.12-java17
 USER root
