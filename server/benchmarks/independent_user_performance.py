@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
 import http.client
 import json
 import os
@@ -21,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "server")]
 
 from app.core.observability import percentile
+from app.services.api_performance import source_sha256
 from app.services.replay_benchmark import git_revision
 from server.benchmarks.api_performance import SCENARIOS, call, summarize
 from server.benchmarks.e2e_server import prepare
@@ -91,6 +93,10 @@ def execute_persistent(base_url: str, paths: list[str], tokens: list[str], round
     for round_index in range(rounds):
         current = [user_results[round_index] for user_results in nested]
         round_metrics.append(summarize([item[0] for item in current], [item[1] for item in current]))
+    by_scenario = {}
+    for path in paths:
+        current = [nested[user_index][round_index] for user_index in range(len(tokens)) for round_index in range(rounds) if paths[(user_index + round_index) % len(paths)] == path]
+        by_scenario[path] = summarize([item[0] for item in current], [item[1] for item in current])
     return {
         **summarize(durations, statuses, elapsed),
         "wall_ms": round(elapsed * 1000, 3),
@@ -98,7 +104,49 @@ def execute_persistent(base_url: str, paths: list[str], tokens: list[str], round
         "rounds": rounds,
         "connection_mode": "one_keep_alive_connection_per_user",
         "round_metrics": round_metrics,
+        "scenarios": by_scenario,
         "p95_within_50ms": percentile(durations, 0.95) < 50,
+    }
+
+
+def compare_api_baseline(current: dict, baseline: dict) -> dict:
+    """Compare complete, equally shaped local runs without hiding regressions."""
+    config_keys = ("users", "rounds", "timeout_seconds", "scenarios", "rate_limit_mode", "server_thread_pool_size")
+    environment_keys = ("platform", "python", "cpu_count")
+    if any(current.get("configuration", {}).get(key) != baseline.get("configuration", {}).get(key) for key in config_keys):
+        raise ValueError("独立用户 API 基线的用户、轮次、场景、超时、限流或线程配置不一致")
+    if any(current.get("environment", {}).get(key) != baseline.get("environment", {}).get(key) for key in environment_keys):
+        raise ValueError("独立用户 API 基线的操作系统、Python 或逻辑 CPU 环境不一致")
+    if not current.get("target_evaluation", {}).get("all_requests_successful") or not baseline.get("target_evaluation", {}).get("all_requests_successful"):
+        raise ValueError("只有全部请求成功的完整独立用户 API 报告才能比较")
+    groups = {}
+    for mode in ("new_connection_per_request", "keep_alive_per_user"):
+        before = baseline.get("measurement", {}).get(mode, {})
+        after = current.get("measurement", {}).get(mode, {})
+        if before.get("requests") != after.get("requests") or not isinstance(after.get("requests"), int) or after["requests"] < 1:
+            raise ValueError("独立用户 API 基线的连接模式或请求样本数不一致")
+        baseline_p95 = before.get("latency_ms", {}).get("p95")
+        current_p95 = after.get("latency_ms", {}).get("p95")
+        if not isinstance(baseline_p95, (int, float)) or not isinstance(current_p95, (int, float)):
+            raise ValueError("独立用户 API 基线缺少可比较的 p95")
+        delta = round(current_p95 - baseline_p95, 3)
+        groups[mode] = {
+            "baseline_p95_ms": baseline_p95,
+            "current_p95_ms": current_p95,
+            "delta_ms": delta,
+            "change_percent": round(delta / baseline_p95 * 100, 3) if baseline_p95 else None,
+            "sample_count": after["requests"],
+        }
+    return {
+        "comparison_version": "api-performance-baseline-comparison-v1",
+        "baseline_generated_at": baseline.get("generated_at"),
+        "current_generated_at": current.get("generated_at"),
+        "baseline_git_revision": baseline.get("environment", {}).get("git_revision"),
+        "current_git_revision": current.get("environment", {}).get("git_revision"),
+        "baseline_source_sha256": baseline.get("source_sha256"),
+        "current_source_sha256": current.get("source_sha256"),
+        "groups": groups,
+        "interpretation": "同机同配置先后测量，包含冷轮次与客户端/服务端同机调度，不是随机对照、公网性能或生产 SLA",
     }
 
 
@@ -133,6 +181,7 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=10)
     parser.add_argument("--thread-pool-size", type=int)
     parser.add_argument("--ready-timeout", type=float, default=120)
+    parser.add_argument("--baseline", type=Path, help="相同配置和环境的既有完整报告，仅用于前后对照")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "localhost"}:
@@ -194,8 +243,12 @@ def main() -> None:
     successful = all(group["successful"] == group["requests"] for group in groups)
     latency_passed = all(group["p95_within_50ms"] for group in groups)
     report = {
-        "schema_version": 1,
+        "report_type": "independent_user_api_performance",
+        "performance_version": "independent-user-api-performance-v1",
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_sha256": source_sha256(),
+        "benchmark_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "configuration": {
             "base_url": base_url, "users": args.users, "rounds": args.rounds, "warmup_requests": args.warmup,
             "concurrent_requests": args.users, "think_time_seconds": 0, "timeout_seconds": args.timeout,
@@ -222,6 +275,12 @@ def main() -> None:
             "note": "单进程、单机、零思考时间的合成混合读取；不是独立用户完整业务容量或公网性能证明",
         },
     }
+    if args.baseline is not None:
+        try:
+            baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("独立用户 API 基线报告不可读取") from error
+        report["baseline_comparison"] = compare_api_baseline(report, baseline)
     output = args.output or ROOT / "server" / "data" / "benchmarks" / f"independent-users-{int(time.time())}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

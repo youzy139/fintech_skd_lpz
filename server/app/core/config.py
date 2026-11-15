@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass
@@ -22,6 +23,13 @@ def configure_thread_pool_from_env() -> None:
     if not 1 <= size <= 256:
         raise ValueError("SERVER_THREAD_POOL_SIZE 必须是 1～256 的整数")
     anyio.to_thread.current_default_thread_limiter().total_tokens = size
+
+
+async def prewarm_worker_threads() -> None:
+    """Finish default executor startup before readiness; request timings still include all work."""
+    default_workers = min(32, (os.cpu_count() or 1) + 4)
+    configured = int(os.getenv("SERVER_THREAD_POOL_SIZE", default_workers))
+    await asyncio.gather(*(asyncio.to_thread(lambda: None) for _ in range(min(default_workers, configured))))
 
 
 @dataclass(frozen=True)

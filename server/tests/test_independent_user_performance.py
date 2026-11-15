@@ -6,7 +6,7 @@ from threading import Thread
 
 import pytest
 
-from server.benchmarks.independent_user_performance import execute_mixed, execute_persistent
+from server.benchmarks.independent_user_performance import compare_api_baseline, execute_mixed, execute_persistent
 
 
 def test_mixed_load_uses_independent_sessions_and_rotates_scenarios():
@@ -70,3 +70,47 @@ def test_persistent_load_reuses_one_connection_per_user():
         by_user.setdefault(token, set()).add(port)
     assert set(by_user) == {"Bearer user-a", "Bearer user-b"}
     assert all(len(ports) == 1 for ports in by_user.values())
+    assert result["scenarios"]["/read"]["requests"] == 3
+    assert result["scenarios"]["/query"]["requests"] == 3
+
+
+def comparable_report(new_connection_p95=433.145, keep_alive_p95=398.439):
+    group = lambda p95: {"requests": 505, "latency_ms": {"p95": p95}}
+    return {
+        "generated_at": "2026-11-15T00:00:00+00:00",
+        "configuration": {"users": 101, "rounds": 5, "timeout_seconds": 10, "scenarios": {"latest": "/latest"}, "rate_limit_mode": "local", "server_thread_pool_size": 40},
+        "environment": {"platform": "test", "python": "3.12", "cpu_count": 24, "git_revision": "baseline"},
+        "measurement": {"new_connection_per_request": group(new_connection_p95), "keep_alive_per_user": group(keep_alive_p95)},
+        "target_evaluation": {"all_requests_successful": True},
+    }
+
+
+def test_baseline_comparison_reports_decrease_and_increase_with_samples():
+    baseline = comparable_report()
+    current = comparable_report(347.789, 407.769)
+    current["generated_at"] = "2026-11-16T00:00:00+00:00"
+    current["environment"]["git_revision"] = "current"
+    comparison = compare_api_baseline(current, baseline)
+    assert comparison["comparison_version"] == "api-performance-baseline-comparison-v1"
+    assert comparison["groups"]["new_connection_per_request"]["delta_ms"] == -85.356
+    assert comparison["groups"]["new_connection_per_request"]["sample_count"] == 505
+    assert comparison["groups"]["keep_alive_per_user"]["delta_ms"] == 9.33
+    assert comparison["groups"]["keep_alive_per_user"]["change_percent"] > 0
+
+
+def test_baseline_comparison_rejects_different_load_or_incomplete_reports():
+    baseline = comparable_report()
+    current = comparable_report()
+    current["configuration"]["rounds"] = 4
+    try:
+        compare_api_baseline(current, baseline)
+        raise AssertionError("不同轮次不应比较")
+    except ValueError as error:
+        assert "配置不一致" in str(error)
+    current = comparable_report()
+    current["target_evaluation"]["all_requests_successful"] = False
+    try:
+        compare_api_baseline(current, baseline)
+        raise AssertionError("失败报告不应比较")
+    except ValueError as error:
+        assert "全部请求成功" in str(error)

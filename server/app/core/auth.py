@@ -236,9 +236,13 @@ class AuthStore:
         if claims["kind"] == "service" and claims["sub"] in {"backend", "feature", "alert"}:
             return Principal(claims["sub"], "service", frozenset(DOMAINS), claims["exp"], True)
         with self.connect() as db:
-            user = db.execute("SELECT * FROM auth_users WHERE username=?", (claims["sub"],)).fetchone()
-            session = db.execute("SELECT 1 FROM auth_sessions WHERE id=? AND username=? AND expires>?", (claims["jti"], claims["sub"], int(time.time()))).fetchone()
-            if claims["kind"] != "user" or not session or not user or not user["enabled"] or user["version"] != claims.get("ver"):
+            user = db.execute(
+                "SELECT u.username,u.role,u.domains,u.enabled,u.version,u.scopes "
+                "FROM auth_sessions s JOIN auth_users u ON u.username=s.username "
+                "WHERE s.id=? AND s.username=? AND s.expires>?",
+                (claims["jti"], claims["sub"], int(time.time())),
+            ).fetchone()
+            if claims["kind"] != "user" or not user or not user["enabled"] or user["version"] != claims.get("ver"):
                 raise HTTPException(401, "登录已失效，请重新登录", headers={"WWW-Authenticate": "Bearer"})
             scopes = json.loads(user["scopes"]) if "scopes" in user.keys() else {"assets": ["*"], "sources": ["*"]}
             return Principal(user["username"], user["role"], frozenset(json.loads(user["domains"])), claims["exp"], False, frozenset(scopes["assets"]), frozenset(scopes["sources"]))

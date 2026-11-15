@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.dependencies import current_service
 from app.core.config import load_config
+from app.services.api_performance import load_api_performance_report
 from app.services.dependencies import DependencyMonitor
 from app.services.feature_proxy import forward_feature_request
 
@@ -61,6 +62,16 @@ async def computation_performance(request: Request):
         return await forward_feature_request(request, config.feature_service["url"], float(config.feature_service["timeout_seconds"]))
     try:
         return current_service(request).computation_performance()
+    except FileNotFoundError as error:
+        raise HTTPException(404, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
+
+
+@router.get("/api/system/api-performance")
+def api_performance():
+    try:
+        return load_api_performance_report(load_config().database_path)
     except FileNotFoundError as error:
         raise HTTPException(404, str(error)) from None
     except ValueError as error:

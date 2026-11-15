@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from app.api.contracts import RuleRequest
-from app.core.config import configure_thread_pool_from_env, load_config
+from app.core.config import configure_thread_pool_from_env, load_config, prewarm_worker_threads
 from app.core.auth import auth_enabled, auth_store, has_full_scope, install_auth
 from app.core.governance import install_governance
 from app.core.observability import RequestMetrics, build_request_middleware, error_response, install_error_handlers
@@ -33,6 +33,7 @@ def create_alert_app(service: AlertService | None = None, initialize: bool = Tru
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         configure_thread_pool_from_env()
+        await prewarm_worker_threads()
         app.state.service = service or AlertService(config)
         if initialize:
             await asyncio.to_thread(app.state.service.initialize)

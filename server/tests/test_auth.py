@@ -4,11 +4,12 @@ import asyncio
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 from functools import lru_cache
 
 import jwt
 import pytest
-from fastapi import WebSocket
+from fastapi import HTTPException, WebSocket
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -182,6 +183,37 @@ def test_user_administration_persistence_and_no_secret_disclosure(secured):
         stored_password = db.execute("SELECT password FROM auth_users WHERE username='admin'").fetchone()[0]
     assert PASSWORD not in audit and token not in json_text and code not in audit
     assert stored_password != PASSWORD
+
+
+def test_verify_reads_user_and_session_in_one_query_without_changing_revocation(secured, monkeypatch):
+    client, store, code = secured
+    bootstrap(client, code)
+    token = store.login("admin", PASSWORD)
+    selects = []
+    original_connect = store.connect
+
+    class CountingConnection:
+        def __init__(self, delegate):
+            self.delegate = delegate
+
+        def execute(self, statement, parameters=()):
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects.append(statement)
+            return self.delegate.execute(statement, parameters)
+
+    @contextmanager
+    def counted_connection():
+        with original_connect() as database:
+            yield CountingConnection(database)
+
+    monkeypatch.setattr(store, "connect", counted_connection)
+    assert store.verify(token).username == "admin"
+    assert len(selects) == 1
+    with store.connect() as database:
+        database.execute("DELETE FROM auth_sessions")
+    with pytest.raises(HTTPException) as revoked:
+        store.verify(token)
+    assert revoked.value.status_code == 401
 
 
 def test_asset_and_source_scopes_filter_resources_and_block_aggregates(secured):

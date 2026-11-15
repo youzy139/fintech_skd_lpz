@@ -8,9 +8,12 @@ const report = {
   governance: { mode: 'redis', circuit: { state: 'open', consecutive_failures: 3, short_circuits: 8, recovery_timeout_seconds: 5 } },
 }
 function mockDependencies(payload: unknown = report) {
-  return vi.fn((path: RequestInfo | URL) => Promise.resolve(String(path).includes('computation-performance')
-    ? { ok: false, status: 404, json: async () => ({ detail: '尚未生成单日计算性能报告，请先运行只读基准脚本' }) }
-    : { ok: true, json: async () => payload }))
+  return vi.fn((path: RequestInfo | URL) => {
+    const target = String(path)
+    if (target.includes('computation-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '尚未生成单日计算性能报告，请先运行只读基准脚本' }) })
+    if (target.includes('api-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '尚未生成独立用户 API 性能报告，请先运行隔离基准脚本' }) })
+    return Promise.resolve({ ok: true, json: async () => payload })
+  })
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
@@ -23,7 +26,7 @@ it('shows real dependency and circuit states and supports a new probe', async ()
   expect(screen.getByText('ConnectionError')).toBeInTheDocument()
   expect(screen.getByText('未启用')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '重新探测' }))
-  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4))
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(6))
 })
 
 it('shows monitoring failures without inventing healthy dependencies', async () => {
@@ -66,6 +69,7 @@ it('shows missing computation reports without a pass conclusion', async () => {
   vi.stubGlobal('fetch', mockDependencies())
   render(<SystemStatus />)
   expect(await screen.findByText('尚未生成单日计算性能报告，请先运行只读基准脚本')).toBeInTheDocument()
+  expect(await screen.findByText('尚未生成独立用户 API 性能报告，请先运行隔离基准脚本')).toBeInTheDocument()
   expect(screen.queryByText('通过暂定目标')).not.toBeInTheDocument()
 })
 
@@ -85,9 +89,12 @@ it('shows sample counts, measured thresholds and empty groups separately', async
       },
     },
   }
-  vi.stubGlobal('fetch', vi.fn((path: RequestInfo | URL) => Promise.resolve(String(path).includes('computation-performance')
-    ? { ok: true, json: async () => performance }
-    : { ok: true, json: async () => report })))
+  vi.stubGlobal('fetch', vi.fn((path: RequestInfo | URL) => {
+    const target = String(path)
+    if (target.includes('computation-performance')) return Promise.resolve({ ok: true, json: async () => performance })
+    if (target.includes('api-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '尚未生成独立用户 API 性能报告' }) })
+    return Promise.resolve({ ok: true, json: async () => report })
+  }))
   render(<SystemStatus />)
   expect(await screen.findAllByText('状态识别 · 重训日')).toHaveLength(2)
   expect(screen.getByText('通过暂定目标')).toBeInTheDocument()
@@ -98,4 +105,43 @@ it('shows sample counts, measured thresholds and empty groups separately', async
   expect(screen.getByRole('heading', { name: '前后同口径对照' })).toBeInTheDocument()
   expect(screen.getByText('减少 20.000 ms（50.00%）')).toBeInTheDocument()
   expect(screen.getByText('增加 200.000 ms（20.00%）')).toBeInTheDocument()
+})
+
+it('shows independent API samples, cold rounds and honest baseline changes', async () => {
+  const scenarios = { latest_state: '/api/regimes/latest', catalog_summary: '/api/data/summary' }
+  const group = (p95: number) => ({
+    requests: 505, successful: 505, statuses: { 200: 505 }, p95_within_50ms: false,
+    latency_ms: { p50: 60, p95, p99: 500, min: 8, max: 600 }, throughput_requests_per_second: 600,
+    scenarios: Object.fromEntries(Object.values(scenarios).map(path => [path, { requests: 101, latency_ms: { p50: 60, p95, p99: 500, min: 8, max: 600 } }])),
+    round_metrics: Array.from({ length: 5 }, (_, index) => ({ requests: 101, successful: 101, latency_ms: { p50: 60, p95: index === 0 ? 507.023 : 117.8, p99: 520, min: 8, max: 540 } })),
+  })
+  const apiReport = {
+    report_type: 'independent_user_api_performance', performance_version: 'independent-user-api-performance-v1', generated_at: '2026-11-16T00:00:00+00:00',
+    configuration: { users: 101, rounds: 5, warmup_requests: 10, timeout_seconds: 10, scenarios, server_thread_pool_size: 40 },
+    identity: { unique_sessions: 101, type: 'independent_synthetic_user_jwt' }, environment: { git_revision: 'abcdef1234567890', platform: 'test', python: '3.12' },
+    measurement: { new_connection_per_request: group(347.789), keep_alive_per_user: group(407.769) },
+    target_evaluation: { independent_users_above_100: true, all_requests_successful: true, api_p95_below_50ms: false, passes_provisional_target: false, note: '同机合成读取' },
+    baseline_comparison: {
+      comparison_version: 'api-performance-baseline-comparison-v1', baseline_generated_at: '2026-11-15T00:00:00+00:00', baseline_git_revision: '1234567890abcdef', interpretation: '同机同配置先后测量',
+      groups: {
+        new_connection_per_request: { baseline_p95_ms: 433.145, current_p95_ms: 347.789, delta_ms: -85.356, change_percent: -19.706, sample_count: 505 },
+        keep_alive_per_user: { baseline_p95_ms: 398.439, current_p95_ms: 407.769, delta_ms: 9.33, change_percent: 2.342, sample_count: 505 },
+      },
+    },
+  }
+  vi.stubGlobal('fetch', vi.fn((path: RequestInfo | URL) => {
+    const target = String(path)
+    if (target.includes('api-performance')) return Promise.resolve({ ok: true, json: async () => apiReport })
+    if (target.includes('computation-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '缺失' }) })
+    return Promise.resolve({ ok: true, json: async () => report })
+  }))
+  render(<SystemStatus />)
+  expect(await screen.findByText('101 用户 · 1010 请求')).toBeInTheDocument()
+  expect(screen.getAllByText('505/505')).toHaveLength(2)
+  expect(screen.getAllByText('p95 未通过暂定目标')).toHaveLength(2)
+  expect(screen.getByRole('heading', { name: 'API 前后同口径对照' })).toBeInTheDocument()
+  expect(screen.getByText('减少 85.356 ms（19.71%）')).toBeInTheDocument()
+  expect(screen.getByText('增加 9.330 ms（2.34%）')).toBeInTheDocument()
+  expect(screen.getByText('第 1 轮 · 冷轮次保留')).toBeInTheDocument()
+  expect(screen.getByText('abcdef123456')).toBeInTheDocument()
 })

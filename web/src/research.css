@@ -720,6 +720,9 @@ summary { color: #596571; cursor: pointer; font-size: 11px; line-height: 1.7; }
 .case-conclusion dd { margin: 0; line-height: 1.65; }
 .coverage-sensitivity-table { min-width: 850px; }
 .computation-performance-table { min-width: 980px; }
+.api-performance-table { min-width: 980px; }
+.api-performance-table td.numeric { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table-secondary { display: block; margin-top: 3px; color: #68707b; overflow-wrap: anywhere; }
 .performance-baseline { margin: 18px 0; }
 .performance-baseline h3 { margin: 0 0 6px; font-size: 15px; }
 .performance-baseline p { margin: 6px 0 12px; }
