@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import pandas as pd
 import pytest
@@ -12,6 +13,7 @@ from market_core.models.features import build_market_features
 from server.benchmarks.model_computation_performance import (
     PERFORMANCE_VERSION,
     build_performance_report,
+    compare_performance_baseline,
     measure_replay_run,
     summarize_latency,
 )
@@ -68,6 +70,38 @@ def test_latency_summary_keeps_empty_groups_and_threshold_boundary_explicit():
     assert empty["p95_within_target"] is None
     assert summarize_latency([10, 20, 50], 50)["p95_within_target"] is False
     assert summarize_latency([10, 20, 30], 50)["p95_within_target"] is True
+
+
+def test_baseline_comparison_reports_signed_changes_and_rejects_mismatched_scope():
+    series = sample_series()
+    days = ReplayDataCatalog(series).dates[45:47]
+    current = build_performance_report(series, MODEL_SETTINGS, ALERT_SETTINGS, days, runs=1, data_profile="synthetic-test")
+    baseline = deepcopy(current)
+    baseline["summary"]["features"]["latency_ms"]["p95"] = current["summary"]["features"]["latency_ms"]["p95"] * 2
+
+    comparison = compare_performance_baseline(current, baseline)
+    feature_change = comparison["stages"]["features"]
+    assert feature_change["delta_ms"] < 0
+    assert feature_change["change_percent"] == -50
+    assert feature_change["sample_count"] == 2
+    assert comparison["comparison_version"] == "performance-baseline-comparison-v1"
+    json.dumps(comparison, allow_nan=False)
+
+    wrong_interval = deepcopy(baseline)
+    wrong_interval["configuration"]["event_start"] = "2020-01-01"
+    with pytest.raises(ValueError, match="口径不一致"):
+        compare_performance_baseline(current, wrong_interval)
+    wrong_samples = deepcopy(baseline)
+    wrong_samples["summary"]["features"]["sample_count"] += 1
+    with pytest.raises(ValueError, match="样本数不一致"):
+        compare_performance_baseline(current, wrong_samples)
+    wrong_environment = deepcopy(baseline)
+    wrong_environment["environment"]["cpu_count"] += 1
+    with pytest.raises(ValueError, match="运行环境不一致"):
+        compare_performance_baseline(current, wrong_environment)
+    incomplete = {**baseline, "complete": False}
+    with pytest.raises(ValueError, match="完整"):
+        compare_performance_baseline(current, incomplete)
 
 
 def test_report_loader_rejects_missing_stale_and_unreadable_reports(tmp_path):

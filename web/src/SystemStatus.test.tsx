@@ -76,15 +76,26 @@ it('shows sample counts, measured thresholds and empty groups separately', async
     configuration: { event_start: '2026-01-01', event_end: '2026-04-30', event_days_per_run: 63, runs: 3, loaded_assets: 39, data_profile: 'real-competition-read-only', measurement_boundary: '单日真实计算', temperature_boundary: '同进程新 engine' },
     environment: { git_revision: '1234567890abcdef', platform: 'test', python: '3.12' },
     summary: { features: summary(189, 20, 50), regime_non_refit: summary(186, 1200, 1000), regime_refit: summary(0, null, 1000), regime_all: summary(189, 1100, 1000) },
+    baseline_comparison: {
+      comparison_version: 'performance-baseline-comparison-v1', baseline_generated_at: '2026-11-14T00:00:00+00:00', current_generated_at: '2026-11-15T00:00:00+00:00', interpretation: '同机同区间先后观测',
+      stages: {
+        features: { baseline_p95_ms: 40, current_p95_ms: 20, delta_ms: -20, change_percent: -50, sample_count: 189 },
+        regime_non_refit: { baseline_p95_ms: 1000, current_p95_ms: 1200, delta_ms: 200, change_percent: 20, sample_count: 186 },
+        regime_refit: { baseline_p95_ms: null, current_p95_ms: null, delta_ms: null, change_percent: null, sample_count: 0 },
+      },
+    },
   }
   vi.stubGlobal('fetch', vi.fn((path: RequestInfo | URL) => Promise.resolve(String(path).includes('computation-performance')
     ? { ok: true, json: async () => performance }
     : { ok: true, json: async () => report })))
   render(<SystemStatus />)
-  expect(await screen.findByText('状态识别 · 重训日')).toBeInTheDocument()
+  expect(await screen.findAllByText('状态识别 · 重训日')).toHaveLength(2)
   expect(screen.getByText('通过暂定目标')).toBeInTheDocument()
   expect(screen.getByText('未通过暂定目标')).toBeInTheDocument()
   expect(screen.getByText('未测量')).toBeInTheDocument()
   expect(screen.getByText('1234567890ab')).toBeInTheDocument()
   expect(screen.getByText('2026-01-01 ～ 2026-04-30')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '前后同口径对照' })).toBeInTheDocument()
+  expect(screen.getByText('减少 20.000 ms（50.00%）')).toBeInTheDocument()
+  expect(screen.getByText('增加 200.000 ms（20.00%）')).toBeInTheDocument()
 })

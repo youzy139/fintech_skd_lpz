@@ -208,6 +208,46 @@ def build_performance_report(
     }
 
 
+def compare_performance_baseline(current: Mapping[str, Any], baseline: Mapping[str, Any]) -> dict[str, Any]:
+    configuration_keys = ("event_start", "event_end", "event_days_per_run", "runs", "loaded_assets", "data_profile", "statistic", "measurement_boundary", "temperature_boundary")
+    environment_keys = ("platform", "python", "cpu_count")
+    if any(not report.get("complete") or not report.get("result_consistent") or not report.get("targets_conclusive") for report in (current, baseline)):
+        raise ValueError("性能对照要求两份完整且结果一致的报告")
+    if any(current["configuration"].get(key) != baseline["configuration"].get(key) for key in configuration_keys):
+        raise ValueError("性能基线与当前报告的区间、轮次、数据或计时口径不一致")
+    if any(current["environment"].get(key) != baseline["environment"].get(key) for key in environment_keys):
+        raise ValueError("性能基线与当前报告的运行环境不一致")
+    stages = {}
+    for name in ("features", "regime_non_refit", "regime_refit"):
+        current_summary = current["summary"][name]
+        baseline_summary = baseline["summary"][name]
+        if current_summary["sample_count"] != baseline_summary["sample_count"]:
+            raise ValueError(f"性能基线与当前报告的 {name} 样本数不一致")
+        before = baseline_summary["latency_ms"]["p95"]
+        after = current_summary["latency_ms"]["p95"]
+        if before is None or after is None:
+            change_percent = None
+        else:
+            change_percent = round((after - before) / before * 100, 3) if before else None
+        stages[name] = {
+            "baseline_p95_ms": before,
+            "current_p95_ms": after,
+            "delta_ms": round(after - before, 3) if before is not None and after is not None else None,
+            "change_percent": change_percent,
+            "sample_count": current_summary["sample_count"],
+        }
+    return {
+        "comparison_version": "performance-baseline-comparison-v1",
+        "baseline_generated_at": baseline["generated_at"],
+        "current_generated_at": current["generated_at"],
+        "baseline_git_revision": baseline["environment"]["git_revision"],
+        "baseline_source_sha256": baseline["source_sha256"],
+        "current_source_sha256": current["source_sha256"],
+        "stages": stages,
+        "interpretation": "同机同区间先后观测，不是随机对照、全历史或生产 SLA 结论",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="只读真实行情的单日特征与状态识别性能基准，不加载运行数据库")
     parser.add_argument("--data-root", type=Path, default=ROOT / "上科大数据合集")
@@ -216,6 +256,7 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--start")
     parser.add_argument("--end")
+    parser.add_argument("--baseline", type=Path, help="同口径的既有性能报告，用于前后对照")
     args = parser.parse_args()
     if args.days < 1 or args.runs < 1 or bool(args.start) != bool(args.end):
         parser.error("days、runs 必须为正数，start 和 end 必须同时提供")
@@ -231,6 +272,9 @@ def main() -> None:
     failure = None
     try:
         report = build_performance_report(series, config["model"], config["alerts"], days, args.runs, data_profile="real-competition-read-only")
+        if args.baseline:
+            baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+            report["baseline_comparison"] = compare_performance_baseline(report, baseline)
     except Exception as error:
         failure = {"type": type(error).__name__, "message": str(error)}
         report = {

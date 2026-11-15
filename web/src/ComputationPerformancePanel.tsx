@@ -7,6 +7,14 @@ export type LatencySummary = {
   p95_within_target: boolean | null
 }
 export type PerformanceSummaries = { features: LatencySummary; regime_non_refit: LatencySummary; regime_refit: LatencySummary; regime_all: LatencySummary }
+export type BaselineComparison = {
+  comparison_version: string
+  baseline_generated_at: string
+  baseline_git_revision?: string
+  current_generated_at: string
+  interpretation: string
+  stages: Record<'features' | 'regime_non_refit' | 'regime_refit', { baseline_p95_ms: number | null; current_p95_ms: number | null; delta_ms: number | null; change_percent: number | null; sample_count: number }>
+}
 export type ComputationPerformanceReport = {
   report_type: 'model_computation_performance'
   performance_version: string
@@ -18,6 +26,7 @@ export type ComputationPerformanceReport = {
   configuration: { event_start: string; event_end: string; event_days_per_run: number; runs: number; loaded_assets: number; data_profile?: string; measurement_boundary: string; temperature_boundary: string }
   environment: { git_revision: string; platform: string; python: string; computation_sources_dirty_at_generation?: boolean | null }
   summary: PerformanceSummaries
+  baseline_comparison?: BaselineComparison
   runs?: Array<{ run_index: number; temperature: string; initialization_ms_excluded_from_daily_samples: number; summary: PerformanceSummaries }>
 }
 
@@ -27,6 +36,12 @@ const rows = [
   ['regime_refit', '状态识别 · 重训日'],
 ] as const
 function milliseconds(value: number | null) { return value === null ? '—' : `${value.toFixed(3)} ms` }
+function signedChange(delta: number | null, percent: number | null) {
+  if (delta === null) return '—'
+  if (delta === 0) return '无变化'
+  const direction = delta < 0 ? '减少' : '增加'
+  return `${direction} ${Math.abs(delta).toFixed(3)} ms${percent === null ? '' : `（${Math.abs(percent).toFixed(2)}%）`}`
+}
 function conclusion(data: LatencySummary, conclusive: boolean) {
   if (!data.sample_count) return '未测量'
   if (!conclusive) return '结果不一致，不可判定'
@@ -43,6 +58,7 @@ export function ComputationPerformancePanel({ report, error }: { report: Computa
         <Metric label="报告状态" value={!report.complete ? '测量不完整' : report.targets_conclusive ? '轮次结果一致' : '轮次结果不一致'} tone={!report.complete || !report.targets_conclusive ? 'risk' : ''} detail={`${report.result_comparison ? `容差比较 · 精确摘要 ${report.result_comparison.exact_digest_matching_days}/${report.result_comparison.compared_days_per_run} 日一致 · ` : ''}${new Date(report.generated_at).toLocaleString('zh-CN')}`} />
         <Metric label="源码提交" value={report.environment.git_revision.slice(0, 12)} detail={`${report.environment.python} · ${report.environment.computation_sources_dirty_at_generation ? '生成时含未提交计算源码，以摘要为准' : '计算源码摘要已绑定'} · ${report.performance_version}`} />
       </div>
+      {report.baseline_comparison && <section className="performance-baseline"><h3>前后同口径对照</h3><p>基线 {report.baseline_comparison.baseline_git_revision ? `${report.baseline_comparison.baseline_git_revision.slice(0, 12)} · ` : ''}生成于 {new Date(report.baseline_comparison.baseline_generated_at).toLocaleString('zh-CN')}；只比较相同区间、轮次、样本和运行环境。</p><div className="table-wrap"><table className="performance-baseline-table"><thead><tr><th>计算阶段</th><th>此前 p95</th><th>本次 p95</th><th>变化</th><th>样本数</th></tr></thead><tbody>{rows.map(([key, label]) => { const data = report.baseline_comparison!.stages[key]; return <tr key={key}><td>{label}</td><td className="numeric">{milliseconds(data.baseline_p95_ms)}</td><td className="numeric">{milliseconds(data.current_p95_ms)}</td><td>{signedChange(data.delta_ms, data.change_percent)}</td><td className="numeric">{data.sample_count}</td></tr> })}</tbody></table></div><p className="method-note">{report.baseline_comparison.interpretation}。</p></section>}
       <div className="table-wrap"><table className="computation-performance-table"><thead><tr><th>计算阶段</th><th>样本数</th><th>p50</th><th>p95</th><th>p99</th><th>最大值</th><th>暂定目标</th><th>结论</th></tr></thead><tbody>
         {rows.map(([key, label]) => { const data = report.summary[key]; return <tr key={key}><td>{label}</td><td className="numeric">{data.sample_count}</td><td className="numeric">{milliseconds(data.latency_ms.p50)}</td><td className="numeric">{milliseconds(data.latency_ms.p95)}</td><td className="numeric">{milliseconds(data.latency_ms.p99)}</td><td className="numeric">{milliseconds(data.latency_ms.max)}</td><td className="numeric">p95 &lt; {data.target_p95_ms} ms</td><td>{conclusion(data, report.complete && report.targets_conclusive)}</td></tr> })}
       </tbody></table></div>
