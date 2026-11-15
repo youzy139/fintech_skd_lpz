@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Icon from './Icon'
+import ModelCardPanel from './ModelCardPanel'
 import { api } from './api'
 import { numeric, percent } from './format'
 import { ErrorMessage, Loading, Metric, Panel } from './ui'
@@ -50,6 +51,7 @@ export default function RegimeStability() {
       <div className="evaluation-notice"><Icon name="alerts" /><p><strong>稳定性不是预测准确率。</strong>本报告比较参数扰动下的历史状态分区，不提供金融事件命中率、误报率或投资效果结论。事件标注与预警 episode 回测仍未完成。</p></div>
       <dl className="evaluation-facts"><div><dt>评估区间</dt><dd>{report.period_definitions[period].start ?? report.runs[0]?.periods[period].first_state ?? '—'} ～ {report.period_definitions[period].end ?? report.runs[0]?.periods[period].last_state ?? '—'}</dd></div><div><dt>当前基准组合</dt><dd className="numeric">{report.reference_run_id}</dd></div><div><dt>报告生成时间</dt><dd>{new Date(report.generated_at).toLocaleString('zh-CN')}</dd></div><div><dt>输入规模</dt><dd>{report.loaded_assets} 个资产 · {report.feature_days.toLocaleString()} 个特征日</dd></div></dl>
     </Panel>
+    {report.model_card ? <ModelCardPanel card={report.model_card} /> : <Panel title="模型卡与输入覆盖" subtitle="当前报告尚未包含 model-card-v1"><p className="method-note">请重新运行只读评估脚本生成输入覆盖信息；既有稳定性结果仍按原报告展示。</p></Panel>}
     <Panel title="全部参数组合" subtitle="完整展示实验网格；持续期在评估区间边界截断" className="table-panel stability-runs">
       <div className="table-wrap"><table className="stability-run-table"><thead><tr><th>组合</th><th>训练窗口</th><th>重训间隔</th><th>随机种子</th><th>状态日</th><th>切换 / 100日</th><th>持续期中位数</th><th>P90 持续期</th><th>边界切换占比</th></tr></thead><tbody>{report.runs.map(run => { const result = run.periods[period]; return <tr key={run.run_id}><td><strong className="numeric">{run.run_id}</strong>{run.is_reference && <small className="table-subtitle">当前基准</small>}</td><td>{run.training_window} 日</td><td>{run.refit_interval} 日</td><td>{run.random_seed}</td><td>{result.state_days.toLocaleString()}</td><td>{numeric(result.switches_per_100_state_days, 2)}</td><td>{numeric(result.median_duration_days, 1)} 日</td><td>{numeric(result.p90_duration_days, 1)} 日</td><td>{percent(result.refit_boundary_switch_share, 2)}</td></tr> })}</tbody></table></div>
       <p className="method-note">边界切换占比 = 发生在重训边界的切换数 ÷ 全部切换数；无切换时显示缺失。切换使用含稳定身份的完整标签，与当前切换规则口径一致。</p>

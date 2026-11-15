@@ -40,11 +40,29 @@ export type StabilityComparison = {
   common_state_days: number; common_start: string | null; common_end: string | null
   adjusted_rand_index: number | null; semantic_agreement: number | null
 }
+export type ModelCardAsset = {
+  code: string; name: string; category: string; field: string; model_input: boolean; exclusion_reason: string | null
+  declared_start: string; declared_end: string; observed_start: string | null; observed_end: string | null
+  declared_rows: number; valid_rows: number; analysis_rows: number; observed_vs_declared: number | null
+  positive_rows: number; nonpositive_rows: number; invalid_rows: number; duplicate_dates: number
+}
+export type ModelCard = {
+  model_card_version: string; intended_use: string; out_of_scope: string
+  analysis_start: string; observed_through: string | null
+  loaded_series: number; price_assets: number; excluded_series: number; catalog_missing_assets: string[]
+  valid_observations: number; price_observations: number; nonpositive_price_rows: number; invalid_rows: number; duplicate_dates: number
+  union_price_observation_days: number; first_feature_day: string | null; last_feature_day: string | null; feature_days: number
+  post_first_feature_union_days: number; covered_after_first_feature_days: number; dropped_after_first_feature_days: number; dropped_after_first_feature_dates: string[]; post_first_feature_coverage: number | null
+  feature_sample_count: { min: number | null; median: number | null; max: number | null; latest: number | null }
+  state_days: number; state_sample_count: { min: number | null; median: number | null; max: number | null; latest: number | null }
+  state_days_below_price_assets: number; assets: ModelCardAsset[]; limitations: string[]
+}
 export type StabilityReport = {
   schema_version: number; report_type: 'regime_stability'; evaluation_version: string; evaluation_id: string
   protocol_version: string; protocol_status: string; reference_run_id: string
   generated_at: string; input_version: string; feature_version: string; feature_sha256: string; feature_days: number
   loaded_assets: number; model_parameters: Record<string, string | number>
+  model_card?: ModelCard
   fixed: { minimum_history: number; cluster_count: number; regime_identity: string }
   grid: { training_windows: number[]; refit_intervals: number[]; random_seeds: number[]; run_count: number }
   period_definitions: Record<StabilityPeriod, { label: string; start: string | null; end: string | null }>

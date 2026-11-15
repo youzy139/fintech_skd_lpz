@@ -10,11 +10,13 @@ from market_core.domain.market import AssetSeries
 from market_core.models.evaluation import EVALUATION_VERSION, evaluate_stability
 from market_core.models.feature_contracts import feature_contract, market_input_version, model_parameters
 from market_core.models.features import build_market_features
+from market_core.models.model_card import build_model_card
 
 SOURCE_FILES = (
     "market_core/models/evaluation.py",
     "market_core/models/regime.py",
     "market_core/models/features.py",
+    "market_core/models/model_card.py",
 )
 
 
@@ -24,6 +26,7 @@ def build_stability_report(
     training_windows: Sequence[int] = (504, 756),
     refit_intervals: Sequence[int] = (63, 126),
     random_seeds: Sequence[int] = (42, 2026),
+    catalog_missing_assets: Sequence[str] = (),
 ) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
     features = build_market_features(
         series,
@@ -40,6 +43,7 @@ def build_stability_report(
         "feature_version": contract["feature_version"],
         "model_parameters": model_parameters(dict(settings)),
         "loaded_assets": len(series),
+        "model_card": build_model_card(series, features, daily[report["reference_run_id"]], str(settings["analysis_start"]), catalog_missing_assets),
         "source_sha256": {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in SOURCE_FILES},
     })
     return report, daily

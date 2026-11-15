@@ -20,7 +20,7 @@ def main() -> None:
     args = parser.parse_args()
     settings = json.loads((ROOT / "server/config.example.json").read_text(encoding="utf-8"))["model"]
     series, quality = AssetRepository(args.data_root).load_all()
-    report, daily = build_stability_report(series, settings)
+    report, daily = build_stability_report(series, settings, catalog_missing_assets=quality.missing_assets)
     report["input_quality"] = {
         "available_assets": quality.available_assets,
         "loaded_assets": quality.loaded_assets,

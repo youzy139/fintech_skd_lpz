@@ -692,6 +692,20 @@ summary { color: #596571; cursor: pointer; font-size: 11px; line-height: 1.7; }
 .evaluation-lineage > summary { cursor: pointer; font-weight: 600; }
 .evaluation-lineage > div, .evaluation-lineage dl { margin-top: 14px; }
 .evaluation-limitations { margin: 18px 0 0; padding-left: 20px; color: #4f5965; line-height: 1.75; }
+.model-card-purpose { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+.model-card-purpose p { margin: 0; line-height: 1.7; }
+.evaluation-facts dd small { display: block; margin-top: 3px; color: #68707b; }
+.coverage-note { margin: 18px 0; padding: 12px 14px; background: #f5f6f7; border-left: 3px solid #87919c; }
+.coverage-note p { margin: 5px 0; line-height: 1.65; }
+.missing-days { margin-top: 8px; }
+.missing-days summary { cursor: pointer; font-weight: 600; }
+.missing-days p { overflow-wrap: anywhere; }
+.asset-coverage > summary { cursor: pointer; font-weight: 600; }
+.asset-coverage .table-wrap { margin-top: 14px; max-height: 480px; overflow: auto; }
+.asset-coverage table { min-width: 1000px; }
+@media (max-width: 640px) {
+  .model-card-purpose { grid-template-columns: 1fr; gap: 8px; }
+}
 @media (max-width: 900px) {
   .evaluation-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

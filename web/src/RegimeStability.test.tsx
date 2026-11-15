@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RegimeStability from './RegimeStability'
-import type { StabilityReport, StabilityRun } from './types'
+import type { ModelCard, StabilityReport, StabilityRun } from './types'
 
 function run(id: string, reference = false): StabilityRun {
   const period = {
@@ -20,11 +20,22 @@ function run(id: string, reference = false): StabilityRun {
   }
 }
 
+const modelCard: ModelCard = {
+  model_card_version: 'model-card-v1', intended_use: '历史研究', out_of_scope: '不提供交易指令', analysis_start: '2020-01-01', observed_through: '2024-12-31',
+  loaded_series: 1, price_assets: 1, excluded_series: 0, catalog_missing_assets: [], valid_observations: 100, price_observations: 100, nonpositive_price_rows: 0, invalid_rows: 0, duplicate_dates: 0,
+  union_price_observation_days: 100, first_feature_day: '2020-02-01', last_feature_day: '2024-12-31', feature_days: 75,
+  post_first_feature_union_days: 80, covered_after_first_feature_days: 60, dropped_after_first_feature_days: 20, dropped_after_first_feature_dates: ['2020-03-01'], post_first_feature_coverage: .75,
+  feature_sample_count: { min: 1, median: 1, max: 1, latest: 1 }, state_days: 50,
+  state_sample_count: { min: 1, median: 1, max: 1, latest: 1 }, state_days_below_price_assets: 0,
+  assets: [{ code: 'TEST', name: '测试资产', category: '合成', field: 'close', model_input: true, exclusion_reason: null, declared_start: '2020-01-01', declared_end: '2024-12-31', observed_start: '2020-01-01', observed_end: '2024-12-31', declared_rows: 100, valid_rows: 100, analysis_rows: 100, observed_vs_declared: 1, positive_rows: 100, nonpositive_rows: 0, invalid_rows: 0, duplicate_dates: 0 }],
+  limitations: ['覆盖不等于金融效果。'],
+}
+
 const report: StabilityReport = {
   schema_version: 1, report_type: 'regime_stability', evaluation_version: 'stability-v1', evaluation_id: 'stability-test',
   protocol_version: 'evaluation-v1-draft', protocol_status: 'draft_pending_team_review', reference_run_id: 'w756-r63-s42',
   generated_at: '2026-11-15T00:00:00+00:00', input_version: 'input-test', feature_version: 'features-test', feature_sha256: 'feature-digest', feature_days: 500,
-  loaded_assets: 3, model_parameters: {}, fixed: { minimum_history: 504, cluster_count: 3, regime_identity: 'centroid-alignment-v1' },
+  loaded_assets: 3, model_parameters: {}, model_card: modelCard, fixed: { minimum_history: 504, cluster_count: 3, regime_identity: 'centroid-alignment-v1' },
   grid: { training_windows: [504, 756], refit_intervals: [63], random_seeds: [42, 2026], run_count: 2 },
   period_definitions: {
     all: { label: '全部历史', start: null, end: null }, development: { label: '开发区间', start: '2017-01-01', end: '2021-12-31' },
@@ -58,9 +69,20 @@ describe('RegimeStability', () => {
     expect(screen.getByText('0.8123')).toBeInTheDocument()
     expect(screen.getAllByText('91.25%')).toHaveLength(2)
     expect(screen.getByText('稳定性不是预测准确率。')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '模型卡与输入覆盖' })).toBeInTheDocument()
+    expect(screen.getByText('75.00%')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('查看 1 项资产覆盖明细'))
+    expect(screen.getByText('测试资产')).toBeInTheDocument()
     fireEvent.change(screen.getByRole('combobox', { name: '评估区间' }), { target: { value: 'holdout' } })
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
     expect(screen.queryByText('0.8123')).not.toBeInTheDocument()
+  })
+
+  it('keeps older stability reports readable and requests regeneration for coverage', async () => {
+    vi.mocked(fetch).mockImplementationOnce(() => Promise.resolve({ ok: true, json: async () => ({ ...report, model_card: undefined }) } as Response))
+    render(<RegimeStability />)
+    expect(await screen.findByText('请重新运行只读评估脚本生成输入覆盖信息；既有稳定性结果仍按原报告展示。')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '全部参数组合' })).toBeInTheDocument()
   })
 
   it('surfaces missing reports and retries the read', async () => {

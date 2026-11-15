@@ -4,7 +4,7 @@
 
 `v0.3.5` 状态身份变更：状态 JSON 新增 `regime_id`、`regime_identity`，原 `cluster` 仍是局部簇编号；模型版本前缀区分新旧算法。回放会话快照 JSON 新增 `model_identity`，无需改表；旧快照缺字段时采用 `local-cluster-v1`，新建默认 `centroid-alignment-v1`。已有 `result_json` 不迁移或改写，前端兼容缺少新字段的历史结果。详见 [字段与兼容约定](v0.3.5-regime-identity.md#api-与持久化兼容)。
 
-`v0.6.0` 新增离线稳定性报告，不改变上述 SQL 实体。汇总 JSON 与逐日最小结果位于 Git 忽略的运行数据目录，以 `evaluation_id`、输入版本、特征版本、模型参数和源码 SHA-256 绑定；API 只读与当前配置匹配的汇总，缺失/过期明确报错，不将报告作为另一份模型事实源或改写回放结果。详见 [评估专项](v0.6.0-regime-stability.md)。
+`v0.6.0` 新增离线稳定性报告，不改变上述 SQL 实体。汇总 JSON 与逐日最小结果位于 Git 忽略的运行数据目录，以 `evaluation_id`、输入版本、特征版本、模型参数和源码 SHA-256 绑定；API 只读与当前配置匹配的汇总，缺失/过期明确报错，不将报告作为另一份模型事实源或改写回放结果。详见 [评估专项](v0.6.0-regime-stability.md)。`v0.6.2` 在同一汇总中增加可选 `model_card`，逐资产覆盖来自清洗后的有效序列，不改变 SQL 实体或旧稳定性结果。
 
 ## 数据目录与原始血缘
 
