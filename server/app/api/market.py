@@ -108,6 +108,17 @@ def activate_alert_rule(version: str, request: Request):
         raise HTTPException(404, "规则版本不存在") from None
 
 
+@router.get("/api/research/cases/latest")
+def latest_research_case(request: Request):
+    try:
+        principal = getattr(request.state, "principal", None)
+        if has_full_scope(principal, "source"):
+            return current_service(request).research_case()
+        return current_service(request).research_case(principal.sources)
+    except KeyError:
+        raise HTTPException(404, "当前没有可用于研究案例的历史预警") from None
+
+
 @router.get("/api/data/quality")
 def quality(request: Request):
     if not has_full_scope(getattr(request.state, "principal", None), "source"):

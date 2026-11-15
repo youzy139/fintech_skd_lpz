@@ -700,11 +700,32 @@ summary { color: #596571; cursor: pointer; font-size: 11px; line-height: 1.7; }
 .missing-days { margin-top: 8px; }
 .missing-days summary { cursor: pointer; font-weight: 600; }
 .missing-days p { overflow-wrap: anywhere; }
+.case-transition { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 20px; }
+.case-transition > div { padding: 16px; border: 1px solid #e0e3e7; background: #f7f8f9; }
+.case-transition span, .case-transition small { display: block; color: #68707b; }
+.case-transition strong { display: block; margin: 8px 0; font-size: 18px; }
+.case-transition > b { color: #a83b42; font-size: 24px; }
+.case-observation { margin: 18px 0 0; font-size: 16px; line-height: 1.7; }
+.case-context { margin-top: 20px; }
+.case-context h3 { margin: 0 0 8px; font-size: 15px; }
+.case-context h4 { display: flex; justify-content: space-between; gap: 12px; margin: 16px 0 8px; }
+.case-context h4 small, .case-context article small { display: block; color: #68707b; font-weight: 400; }
+.case-context article { padding: 9px 0; border-top: 1px solid #eceef0; }
+.case-context article strong, .case-context article small { display: block; margin-bottom: 4px; line-height: 1.55; }
+.case-replay-link { display: inline-block; margin: 8px 0 20px; padding: 10px 14px; background: #a83b42; color: #fff; text-decoration: none; }
+.case-replay-link:hover { background: #812a31; }
+.case-conclusion { margin: 0; }
+.case-conclusion > div { display: grid; grid-template-columns: 100px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid #eceef0; }
+.case-conclusion dt { color: #68707b; }
+.case-conclusion dd { margin: 0; line-height: 1.65; }
 .asset-coverage > summary { cursor: pointer; font-weight: 600; }
 .asset-coverage .table-wrap { margin-top: 14px; max-height: 480px; overflow: auto; }
 .asset-coverage table { min-width: 1000px; }
 @media (max-width: 640px) {
   .model-card-purpose { grid-template-columns: 1fr; gap: 8px; }
+  .case-transition { grid-template-columns: 1fr; gap: 8px; }
+  .case-transition > b { transform: rotate(90deg); justify-self: center; }
+  .case-conclusion > div { grid-template-columns: 1fr; gap: 4px; }
 }
 @media (max-width: 900px) {
   .evaluation-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }

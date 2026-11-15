@@ -30,6 +30,7 @@ class MockWebSocket {
 
 describe('ReplayCenter', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '/')
     MockWebSocket.instances = []
     backfillResults = []
     vi.stubGlobal('WebSocket', MockWebSocket)
@@ -148,6 +149,21 @@ describe('ReplayCenter', () => {
     expect(screen.getByText('run-1')).toBeInTheDocument()
     expect(screen.getByText('模型计算')).toBeInTheDocument()
     expect(screen.getByText('45.6 ms')).toBeInTheDocument()
+  })
+
+  it('prefills a research-case replay link without starting it automatically', async () => {
+    window.history.replaceState(null, '', '/#/replay?start=2024-02-01&end=2024-02-02&mode=local')
+    render(<ReplayCenter />)
+    const start = await screen.findByLabelText('回放开始日期')
+    await waitFor(() => expect(start).toBeEnabled())
+    expect(start).toHaveValue('2024-02-01')
+    expect(screen.getByLabelText('回放结束日期')).toHaveValue('2024-02-02')
+    expect(MockWebSocket.instances).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: '开始回放' }))
+    await waitFor(() => {
+      const creation = vi.mocked(fetch).mock.calls.find(([path]) => path === '/api/replay/sessions')
+      expect(JSON.parse(String(creation?.[1]?.body))).toMatchObject({ start_date: '2024-02-01', end_date: '2024-02-02', mode: 'local' })
+    })
   })
 
   it('creates a Kafka-mode replay when the event channel is selected', async () => {

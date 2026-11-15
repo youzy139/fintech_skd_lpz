@@ -5,8 +5,11 @@ describe('permission-aware page links', () => {
   it('resolves refresh links and rejects pages outside the account scope', () => {
     expect(resolvePage('#/features', ['market', 'catalog'])).toBe('features')
     expect(resolvePage('#/evaluation', ['market'])).toBe('evaluation')
+    expect(resolvePage('#/case', ['market'])).toBe('case')
+    expect(resolvePage('#/case', ['catalog'])).toBe('data')
     expect(resolvePage('#/evaluation', ['catalog'])).toBe('data')
     expect(resolvePage('#/replay', ['market'])).toBe('overview')
+    expect(resolvePage('#/replay?start=2024-02-01&end=2024-02-02&mode=local', ['market', 'catalog'])).toBe('replay')
     expect(resolvePage('#/overview', ['catalog'])).toBe('data')
     expect(resolvePage('#/unknown', ['market', 'catalog'])).toBe('home')
     expect(allowedPages([])).toEqual([])

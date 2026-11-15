@@ -46,6 +46,19 @@ export type ModelCardAsset = {
   declared_rows: number; valid_rows: number; analysis_rows: number; observed_vs_declared: number | null
   positive_rows: number; nonpositive_rows: number; invalid_rows: number; duplicate_dates: number
 }
+export type ResearchContextItem = { record_id: string; kind: string; title: string; source_path: string; source_date: string; source_time: string | null; source_timestamp: string | null; time_basis: string }
+export type ResearchEvidence = {
+  event_time: string; rule: string; rule_version: string; alert: Alert; state: Regime; previous_state: Regime | null
+  history_days: number; parameters: Record<string, number | boolean>; evidence_links: { type: string; url: string }[]
+  context?: { cutoff_date: string | null; status: string; description: string; sources: { kind: string; status: string; total: number | null; items: ResearchContextItem[] }[]; excluded: { kind: string; reason: string }[] }
+}
+export type ResearchCase = {
+  case_version: string; case_id: string; selection_policy: string; title: string; event_time: string; is_financial_event_label: boolean
+  feature_changes: { feature: string; current: number | null; previous: number | null; delta: number | null }[]
+  replay: { mode: 'local'; start_date: string; end_date: string; url: string; description: string }
+  conclusion: { observation: string; statistical_evidence: string; validation: string; coverage_note: string; limitations: string }
+  evidence: ResearchEvidence
+}
 export type ModelCard = {
   model_card_version: string; intended_use: string; out_of_scope: string
   analysis_start: string; observed_through: string | null

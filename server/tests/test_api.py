@@ -24,6 +24,7 @@ def fake_service():
         feature_metadata=lambda: {"feature_contract": {"feature_version": "test-features"}, "input_version": "test-input"},
         latest_features=lambda: {name: state[name] for name in ("date", "features", "contributions", "model_version")},
         stability_evaluation=lambda: {"report_type": "regime_stability", "evaluation_version": "stability-v1", "runs": []},
+        research_case=lambda: {"case_version": "research-case-v1", "case_id": "case-test", "is_financial_event_label": False},
         feature_cache_status=lambda: {"enabled": False, "view": "current-market"},
         home_summary=lambda: {"latest": state, "alert_count": 1, "loaded_assets": 1, "total_rows": 2, "state_count": 1},
         health_details=lambda: {"storage_mode": "local", "assets": 1, "states": 1},
@@ -89,6 +90,20 @@ def test_stability_report_uses_read_only_service_and_stable_errors():
         stale = http.get("/api/regimes/evaluation/stability")
         assert stale.status_code == 409
         assert stale.json()["detail"].startswith("稳定性报告与当前输入")
+
+
+def test_latest_research_case_has_stable_not_found_contract():
+    service = fake_service()
+    with TestClient(create_app(service, initialize=False)) as http:
+        response = http.get("/api/research/cases/latest")
+        assert response.status_code == 200
+        assert response.json()["case_id"] == "case-test"
+        assert response.json()["is_financial_event_label"] is False
+        service.research_case = lambda: (_ for _ in ()).throw(KeyError("当前没有可用于研究案例的历史预警"))
+        missing = http.get("/api/research/cases/latest")
+        assert missing.status_code == 404
+        assert missing.json()["detail"] == "当前没有可用于研究案例的历史预警"
+        assert missing.json()["error"]["code"] == "not_found"
 
 
 def test_websocket_replay_has_event_time():

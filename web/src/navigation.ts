@@ -3,6 +3,7 @@ export const pages = [
   ['overview', '市场总览', 'overview', 'MARKET OVERVIEW', 'research'],
   ['regimes', '状态分析', 'regimes', 'MARKET REGIMES', 'research'],
   ['evaluation', '评估报告', 'regimes', 'MODEL EVALUATION', 'research'],
+  ['case', '研究案例', 'replay', 'RESEARCH CASE', 'research'],
   ['features', '特征分析', 'features', 'FEATURE EXPLORER', 'research'],
   ['alerts', '预警中心', 'alerts', 'RISK & EVIDENCE', 'research'],
   ['replay', '历史回放', 'replay', 'HISTORICAL REPLAY', 'research'],
@@ -26,6 +27,6 @@ export function allowedPages(domains: string[], role: Role = 'observer'): Page[]
 
 export function resolvePage(hash: string, domains: string[], role: Role = 'observer'): Page {
   const allowed = allowedPages(domains, role)
-  const requested = hash.replace(/^#\/?/, '') as Page
+  const requested = hash.replace(/^#\/?/, '').split('?')[0] as Page
   return allowed.includes(requested) ? requested : allowed[0] ?? 'data'
 }

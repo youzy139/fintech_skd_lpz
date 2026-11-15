@@ -14,6 +14,19 @@ type ReplayMessage = { type: string; sequence?: number; session: ReplaySession }
 function post<T>(path: string, body?: unknown) { return api<T>(path, undefined, { method: 'POST', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }) }
 function featureValue(key: string, value: number | null) { return value === null ? '—' : key === 'correlation' ? value.toFixed(3) : key === 'sample_count' ? value.toFixed(0) : percent(value) }
 function milliseconds(value: number | null | undefined) { return value === null || value === undefined ? '—' : `${value.toFixed(value >= 100 ? 0 : 1)} ms` }
+type ReplayRequest = { start: string; end: string; mode: 'local' | 'kafka' | 'flink' }
+function replayRequestFromHash(range: ReplayCalendar): ReplayRequest | null {
+  const query = window.location.hash.split('?')[1]
+  if (!query) return null
+  const params = new URLSearchParams(query)
+  const start = params.get('start') ?? ''
+  const end = params.get('end') ?? ''
+  const iso = /^\d{4}-\d{2}-\d{2}$/
+  if (!iso.test(start) || !iso.test(end) || start > end || start < range.min_date || end > range.max_date) return null
+  const requested = params.get('mode')
+  const mode = requested === 'kafka' || requested === 'flink' ? requested : 'local'
+  return { start, end, mode }
+}
 
 export default function ReplayCenter() {
   const { user } = useAuth()
@@ -39,8 +52,13 @@ export default function ReplayCenter() {
       .then(([range, current, kafka, flink]) => {
         if (controller.signal.aborted) return
         setCalendar(range); setKafkaStatus(kafka); setFlinkStatus(flink)
-        setStartDate(current?.start_date ?? range.suggested_start); setEndDate(current?.end_date ?? range.suggested_end)
-        setSession(current); setSpeed(current?.speed ?? 1); setMode(current?.mode ?? 'local')
+        const requested = replayRequestFromHash(range)
+        const start = requested?.start ?? current?.start_date ?? range.suggested_start
+        const end = requested?.end ?? current?.end_date ?? range.suggested_end
+        const mode = requested?.mode ?? current?.mode ?? 'local'
+        setStartDate(start); setEndDate(end)
+        setSession(current && requested && (current.start_date !== start || current.end_date !== end || current.mode !== mode) ? null : current)
+        setSpeed(current?.speed ?? 1); setMode(mode)
       })
       .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '无法加载回放日历') })
       .finally(() => { if (!controller.signal.aborted) setInitializing(false) })

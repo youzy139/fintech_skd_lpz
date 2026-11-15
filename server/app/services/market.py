@@ -18,6 +18,7 @@ from market_core.models.alerts import alert_evidence, generate_alerts
 from market_core.models.feature_contracts import feature_contract, market_input_version, model_parameters
 from market_core.models.features import build_market_features
 from market_core.models.regime import REGIME_IDENTITY, WalkForwardRegimeModel
+from market_core.models.research import build_research_case, select_research_alert
 
 
 class MarketService:
@@ -80,6 +81,13 @@ class MarketService:
     def alert_evidence(self, rule: str, event_date: str, allowed_sources: Collection[str] | None = None) -> dict[str, Any]:
         evidence = alert_evidence(self.states, self.alerts, rule, event_date, self.rule_manager.current()["settings"])
         return attach_context(evidence, getattr(self, "catalog", None), allowed_sources=allowed_sources)
+
+    def research_case(self, allowed_sources: Collection[str] | None = None) -> dict[str, Any]:
+        selected = select_research_alert(self.alerts)
+        if selected is None:
+            raise KeyError("当前没有可用于研究案例的历史预警")
+        evidence = self.alert_evidence(str(selected["rule"]), str(selected["date"]), allowed_sources)
+        return build_research_case(evidence)
 
     def assets(self) -> list[dict]:
         return [{"category": item.meta.category, "name": item.meta.name, "code": item.meta.code, "field": item.meta.field, "calendar": item.meta.calendar, "start": item.frame["date"].min().strftime("%Y-%m-%d"), "end": item.frame["date"].max().strftime("%Y-%m-%d"), "rows": len(item.frame)} for item in self.series]

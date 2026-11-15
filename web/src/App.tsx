@@ -11,6 +11,7 @@ import type { Alert, Asset, HomeSummary, Regime } from './types'
 const MarketOverview = lazy(() => import('./MarketOverview'))
 const RegimeAnalysis = lazy(() => import('./RegimeAnalysis'))
 const RegimeStability = lazy(() => import('./RegimeStability'))
+const ResearchCase = lazy(() => import('./ResearchCase'))
 const FeatureAnalysis = lazy(() => import('./FeatureAnalysis'))
 const SourceCatalog = lazy(() => import('./SourceCatalog'))
 const ReplayCenter = lazy(() => import('./ReplayCenter'))
@@ -63,6 +64,7 @@ export default function App() {
   if (page === 'home') content = <Landing data={homeData} error={homeError} onRetry={() => void loadHome()} onEnter={() => navigate('overview')} onNavigate={navigate} />
   else if (page === 'replay') content = <ReplayCenter />
   else if (page === 'evaluation') content = <RegimeStability />
+  else if (page === 'case') content = <ResearchCase />
   else if (page === 'data') content = <SourceCatalog />
   else if (page === 'accounts') content = <Accounts />
   else if (page === 'audit') content = <Audit />

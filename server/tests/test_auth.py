@@ -92,6 +92,7 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     assert client.get("/api/features/metadata", headers=observer).status_code == 200
     assert client.get("/api/features/latest", headers=observer).status_code == 200
     assert client.get("/api/regimes/evaluation/stability", headers=observer).status_code == 200
+    assert client.get("/api/research/cases/latest", headers=observer).status_code == 200
     assert client.get("/api/data/records", headers=observer).status_code == 200
     assert client.post("/api/replay/sessions", json={"start_date": "2024-01-01", "end_date": "2024-01-02"}, headers=observer).status_code == 403
     assert client.get("/api/auth/users", headers=observer).status_code == 403
@@ -193,6 +194,7 @@ def test_asset_and_source_scopes_filter_resources_and_block_aggregates(secured):
     assert client.get("/api/assets/OTHER/series", headers=scoped).status_code == 404
     assert client.get("/api/regimes/latest", headers=scoped).status_code == 403
     assert client.get("/api/regimes/evaluation/stability", headers=scoped).status_code == 403
+    assert client.get("/api/research/cases/latest", headers=scoped).status_code == 403
     assert client.get("/api/features/latest", headers=scoped).status_code == 403
     assert [item["id"] for item in client.get("/api/data/files", headers=scoped).json()["items"]] == ["source"]
     assert client.get("/api/data/files/source/records", headers=scoped).status_code == 200
@@ -228,6 +230,16 @@ def test_alert_evidence_receives_only_the_callers_source_allowlist(secured):
     assert response.status_code == 200
     assert response.json()["context"]["source_scope"] == "allowlist"
     assert calls == [("HIGH_VOLATILITY", "2024-01-02", frozenset({"source"}))]
+
+    def research(allowed_sources=None):
+        calls.append(("research", allowed_sources))
+        return {"case_version": "research-case-v1", "evidence": {"context": {"source_scope": "allowlist"}}}
+
+    client.app.state.service.research_case = research
+    case = client.get("/api/research/cases/latest", headers=bearer(token))
+    assert case.status_code == 200
+    assert case.json()["evidence"]["context"]["source_scope"] == "allowlist"
+    assert calls[-1] == ("research", frozenset({"source"}))
 
 
 def test_scope_filtered_catalog_cache_does_not_leak_across_accounts(secured):

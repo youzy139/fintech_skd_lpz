@@ -369,7 +369,7 @@ def authorize(principal: Principal, path: str, method: str):
             raise HTTPException(403, "历史回放和全市场状态仅面向全资产范围账号")
         if path == "/api/home/summary" and not has_full_scope(principal, "source"):
             raise HTTPException(403, "来源范围受限账号不可查看全局首页摘要")
-    elif path.startswith(("/api/assets", "/api/regimes", "/api/features", "/api/alerts")):
+    elif path.startswith(("/api/assets", "/api/regimes", "/api/features", "/api/alerts", "/api/research")):
         require_domain(principal, "market")
         if not path.startswith("/api/assets") and not has_full_scope(principal, "asset"):
             raise HTTPException(403, "全市场模型、状态和预警仅面向全资产范围账号")
