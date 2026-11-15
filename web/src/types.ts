@@ -46,6 +46,14 @@ export type ModelCardAsset = {
   declared_rows: number; valid_rows: number; analysis_rows: number; observed_vs_declared: number | null
   positive_rows: number; nonpositive_rows: number; invalid_rows: number; duplicate_dates: number
 }
+export type CoverageSensitivity = {
+  coverage_sensitivity_version: string; method: 'output_filter_only_no_refit'; thresholds: number[]
+  periods: Record<StabilityPeriod, {
+    minimum_sample_count: number; state_days: number; eligible_days: number; excluded_days: number; eligible_share: number | null
+    alerts: Record<'HIGH_VOLATILITY' | 'HIGH_CORRELATION' | 'REGIME_CHANGE', { original: number; retained: number; excluded: number }>
+  }[]>
+  alert_settings: Record<string, number>; limitations: string
+}
 export type ResearchContextItem = { record_id: string; kind: string; title: string; source_path: string; source_date: string; source_time: string | null; source_timestamp: string | null; time_basis: string }
 export type ResearchEvidence = {
   event_time: string; rule: string; rule_version: string; alert: Alert; state: Regime; previous_state: Regime | null
@@ -76,6 +84,7 @@ export type StabilityReport = {
   generated_at: string; input_version: string; feature_version: string; feature_sha256: string; feature_days: number
   loaded_assets: number; model_parameters: Record<string, string | number>
   model_card?: ModelCard
+  coverage_sensitivity?: CoverageSensitivity
   fixed: { minimum_history: number; cluster_count: number; regime_identity: string }
   grid: { training_windows: number[]; refit_intervals: number[]; random_seeds: number[]; run_count: number }
   period_definitions: Record<StabilityPeriod, { label: string; start: string | null; end: string | null }>

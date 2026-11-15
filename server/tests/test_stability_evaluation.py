@@ -83,6 +83,9 @@ def test_complete_grid_is_reproducible_and_covers_every_period():
     assert report["summary"]["all"]["common_state_days"] == {"min": 14, "median": 14, "max": 14}
     assert report["summary"]["holdout"]["pair_count"] == 28
     assert report["summary"]["holdout"]["adjusted_rand_index"] == {"min": None, "median": None, "max": None}
+    assert report["coverage_sensitivity"]["method"] == "output_filter_only_no_refit"
+    assert report["coverage_sensitivity"]["periods"]["all"][0]["eligible_days"] == 14
+    assert report["coverage_sensitivity"]["periods"]["all"][-1]["eligible_days"] == 0
     json.dumps(report, allow_nan=False)
 
 

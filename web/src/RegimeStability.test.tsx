@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RegimeStability from './RegimeStability'
-import type { ModelCard, StabilityReport, StabilityRun } from './types'
+import type { CoverageSensitivity, ModelCard, StabilityReport, StabilityRun } from './types'
 
 function run(id: string, reference = false): StabilityRun {
   const period = {
@@ -31,11 +31,21 @@ const modelCard: ModelCard = {
   limitations: ['覆盖不等于金融效果。'],
 }
 
+const coveragePeriods: CoverageSensitivity['periods'] = {
+  all: [
+    { minimum_sample_count: 1, state_days: 100, eligible_days: 100, excluded_days: 0, eligible_share: 1, alerts: { HIGH_VOLATILITY: { original: 10, retained: 10, excluded: 0 }, HIGH_CORRELATION: { original: 8, retained: 8, excluded: 0 }, REGIME_CHANGE: { original: 6, retained: 6, excluded: 0 } } },
+    { minimum_sample_count: 31, state_days: 100, eligible_days: 0, excluded_days: 100, eligible_share: 0, alerts: { HIGH_VOLATILITY: { original: 10, retained: 0, excluded: 10 }, HIGH_CORRELATION: { original: 8, retained: 0, excluded: 8 }, REGIME_CHANGE: { original: 6, retained: 0, excluded: 6 } } },
+  ],
+  development: [], validation: [],
+  holdout: [{ minimum_sample_count: 31, state_days: 0, eligible_days: 0, excluded_days: 0, eligible_share: null, alerts: { HIGH_VOLATILITY: { original: 0, retained: 0, excluded: 0 }, HIGH_CORRELATION: { original: 0, retained: 0, excluded: 0 }, REGIME_CHANGE: { original: 0, retained: 0, excluded: 0 } } }],
+}
+const coverage: CoverageSensitivity = { coverage_sensitivity_version: 'coverage-sensitivity-v1', method: 'output_filter_only_no_refit', thresholds: [1, 31], periods: coveragePeriods, alert_settings: { volatility_quantile: .9, correlation_quantile: .9 }, limitations: '只过滤输出，不是推荐配置。' }
+
 const report: StabilityReport = {
   schema_version: 1, report_type: 'regime_stability', evaluation_version: 'stability-v1', evaluation_id: 'stability-test',
   protocol_version: 'evaluation-v1-draft', protocol_status: 'draft_pending_team_review', reference_run_id: 'w756-r63-s42',
   generated_at: '2026-11-15T00:00:00+00:00', input_version: 'input-test', feature_version: 'features-test', feature_sha256: 'feature-digest', feature_days: 500,
-  loaded_assets: 3, model_parameters: {}, model_card: modelCard, fixed: { minimum_history: 504, cluster_count: 3, regime_identity: 'centroid-alignment-v1' },
+  loaded_assets: 3, model_parameters: {}, model_card: modelCard, coverage_sensitivity: coverage, fixed: { minimum_history: 504, cluster_count: 3, regime_identity: 'centroid-alignment-v1' },
   grid: { training_windows: [504, 756], refit_intervals: [63], random_seeds: [42, 2026], run_count: 2 },
   period_definitions: {
     all: { label: '全部历史', start: null, end: null }, development: { label: '开发区间', start: '2017-01-01', end: '2021-12-31' },
@@ -73,13 +83,15 @@ describe('RegimeStability', () => {
     expect(screen.getByText('75.00%')).toBeInTheDocument()
     fireEvent.click(screen.getByText('查看 1 项资产覆盖明细'))
     expect(screen.getByText('测试资产')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '覆盖敏感性消融' })).toBeInTheDocument()
+    expect(screen.getAllByRole('row', { name: /≥ 31 个/ })).toHaveLength(1)
     fireEvent.change(screen.getByRole('combobox', { name: '评估区间' }), { target: { value: 'holdout' } })
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
     expect(screen.queryByText('0.8123')).not.toBeInTheDocument()
   })
 
   it('keeps older stability reports readable and requests regeneration for coverage', async () => {
-    vi.mocked(fetch).mockImplementationOnce(() => Promise.resolve({ ok: true, json: async () => ({ ...report, model_card: undefined }) } as Response))
+    vi.mocked(fetch).mockImplementationOnce(() => Promise.resolve({ ok: true, json: async () => ({ ...report, model_card: undefined, coverage_sensitivity: undefined }) } as Response))
     render(<RegimeStability />)
     expect(await screen.findByText('请重新运行只读评估脚本生成输入覆盖信息；既有稳定性结果仍按原报告展示。')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '全部参数组合' })).toBeInTheDocument()

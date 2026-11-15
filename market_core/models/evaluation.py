@@ -5,6 +5,7 @@ import json
 import math
 import statistics
 from collections import Counter
+from dataclasses import asdict
 from itertools import combinations
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -13,6 +14,8 @@ import pandas as pd
 from sklearn.metrics import adjusted_rand_score
 
 from market_core.models.regime import REGIME_IDENTITY, WalkForwardRegimeModel
+from market_core.models.alerts import generate_alerts
+from market_core.models.coverage import evaluate_coverage_sensitivity
 
 EVALUATION_VERSION = "stability-v1"
 PROTOCOL_VERSION = "evaluation-v1-draft"
@@ -121,6 +124,7 @@ def evaluate_stability(
     training_windows: Sequence[int] = (504, 756),
     refit_intervals: Sequence[int] = (63, 126),
     random_seeds: Sequence[int] = (42, 2026),
+    alert_settings: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
     if not training_windows or not refit_intervals or not random_seeds:
         raise ValueError("稳定性评估网格不能为空")
@@ -176,6 +180,12 @@ def evaluate_stability(
             "is_reference": run_id == reference_run_id,
             "periods": {period: summarize_states(states, period) for period in PERIOD_DEFINITIONS},
         })
+    reference_alert_settings = dict(alert_settings or {"volatility_quantile": 0.9, "correlation_quantile": 0.9})
+    reference_alerts = [asdict(item) for item in generate_alerts(histories[reference_run_id], **reference_alert_settings)]
+    coverage_sensitivity = {
+        **evaluate_coverage_sensitivity(histories[reference_run_id], reference_alerts, PERIOD_DEFINITIONS),
+        "alert_settings": reference_alert_settings,
+    }
     comparisons = []
     for period in PERIOD_DEFINITIONS:
         for left, right in combinations((experiment["run_id"] for experiment in experiments), 2):
@@ -217,6 +227,7 @@ def evaluate_stability(
         "runs": runs,
         "comparisons": comparisons,
         "summary": summary,
+        "coverage_sensitivity": coverage_sensitivity,
         "metric_definitions": {
             "adjusted_rand_index": "共同日期状态分区的调整兰德指数；对簇编号置换不变，不是预测准确率。",
             "semantic_agreement": "共同日期去除稳定身份后缀后的语义标签一致率；同名状态不保证中心画像相同。",

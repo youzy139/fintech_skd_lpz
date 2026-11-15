@@ -18,9 +18,10 @@ def main() -> None:
     parser.add_argument("--data-root", type=Path, default=ROOT / "上科大数据合集")
     parser.add_argument("--output", type=Path, default=ROOT / "server/data/benchmarks/regime-stability.json")
     args = parser.parse_args()
-    settings = json.loads((ROOT / "server/config.example.json").read_text(encoding="utf-8"))["model"]
+    config = json.loads((ROOT / "server/config.example.json").read_text(encoding="utf-8"))
+    settings = config["model"]
     series, quality = AssetRepository(args.data_root).load_all()
-    report, daily = build_stability_report(series, settings, catalog_missing_assets=quality.missing_assets)
+    report, daily = build_stability_report(series, settings, catalog_missing_assets=quality.missing_assets, alert_settings=config["alerts"])
     report["input_quality"] = {
         "available_assets": quality.available_assets,
         "loaded_assets": quality.loaded_assets,

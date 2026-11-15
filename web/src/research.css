@@ -718,6 +718,8 @@ summary { color: #596571; cursor: pointer; font-size: 11px; line-height: 1.7; }
 .case-conclusion > div { display: grid; grid-template-columns: 100px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid #eceef0; }
 .case-conclusion dt { color: #68707b; }
 .case-conclusion dd { margin: 0; line-height: 1.65; }
+.coverage-sensitivity-table { min-width: 850px; }
+.coverage-sensitivity-table th small { display: block; margin-top: 3px; font-weight: 400; }
 .asset-coverage > summary { cursor: pointer; font-weight: 600; }
 .asset-coverage .table-wrap { margin-top: 14px; max-height: 480px; overflow: auto; }
 .asset-coverage table { min-width: 1000px; }

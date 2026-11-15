@@ -17,6 +17,7 @@ SOURCE_FILES = (
     "market_core/models/regime.py",
     "market_core/models/features.py",
     "market_core/models/model_card.py",
+    "market_core/models/coverage.py",
 )
 
 
@@ -27,6 +28,7 @@ def build_stability_report(
     refit_intervals: Sequence[int] = (63, 126),
     random_seeds: Sequence[int] = (42, 2026),
     catalog_missing_assets: Sequence[str] = (),
+    alert_settings: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
     features = build_market_features(
         series,
@@ -34,7 +36,7 @@ def build_stability_report(
         int(settings["momentum_window"]),
         str(settings["analysis_start"]),
     )
-    report, daily = evaluate_stability(features, settings, training_windows, refit_intervals, random_seeds)
+    report, daily = evaluate_stability(features, settings, training_windows, refit_intervals, random_seeds, alert_settings)
     root = Path(__file__).resolve().parents[3]
     contract = feature_contract(dict(settings))
     report.update({
