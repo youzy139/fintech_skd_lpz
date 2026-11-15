@@ -15,8 +15,8 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.services.replay import ReplayDataCatalog
 from market_core.domain.market import AssetMeta, AssetSeries
-from market_core.domain.replay import ReplayClock
-from market_core.models.features import build_market_features
+from market_core.domain.replay import AssetObservation, ReplayClock, ReplayDayInput
+from market_core.models.features import build_market_features, build_price_panels
 from market_core.models.regime import WalkForwardRegimeModel
 from market_core.models.replay import HistoricalMarketReplay
 
@@ -91,6 +91,32 @@ def test_replay_matches_full_walk_forward_without_future_data():
         assert result.input_end == result.event_time
         assert result.state == expected[result.event_time]
         assert result.state["trained_through"] < result.event_time
+
+
+def test_cached_panels_do_not_create_price_rows_for_yield_only_days():
+    series = sample_series()
+    yield_series = AssetSeries(
+        AssetMeta("测试", "Y", "Y", "yield", "测试", date(2024, 1, 1), date(2024, 4, 1), 80, Path("Y.csv")),
+        pd.DataFrame({"date": pd.bdate_range("2024-01-01", periods=80), "value": np.linspace(2, 3, 80)}),
+    )
+    series.append(yield_series)
+    catalog = ReplayDataCatalog(series)
+    days = catalog.dates[45:48]
+    engine = HistoricalMarketReplay(series, MODEL_SETTINGS, ALERT_SETTINGS, days[0])
+    first = engine.advance(catalog.read(days[0]))
+    yield_only = engine.advance(ReplayDayInput(days[1], (AssetObservation("Y", days[1], 2.5),)))
+    third = engine.advance(catalog.read(days[2]))
+
+    full = WalkForwardRegimeModel(5, 10, 3, 2, 42).predict(build_market_features(series, 3, 20, "2024-01-01"))
+    expected = {item["date"]: item for item in full}
+    assert first.state == expected[first.event_time]
+    assert yield_only.features == {} and yield_only.state is None
+
+    expected_close, _ = build_price_panels(engine.history)
+    pd.testing.assert_frame_equal(engine._close, expected_close, check_exact=True, check_freq=False)
+    expected_features = build_market_features(engine.history, 3, 20, "2024-01-01", third.event_time)
+    assert third.features == {name: float(value) for name, value in expected_features.iloc[0].items()}
+    assert third.state is not None
 
 
 def test_extending_future_records_does_not_change_replayed_day():

@@ -4,12 +4,13 @@ from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from market_core.domain.market import AssetSeries
 from market_core.domain.replay import ReplayDayInput, ReplayDayResult
 from market_core.models.alerts import generate_alerts
-from market_core.models.features import build_market_features
+from market_core.models.features import build_features_from_panels, build_price_panels
 from market_core.models.regime import REGIME_IDENTITY, WalkForwardRegimeModel, WalkForwardRegimeSession
 
 
@@ -39,9 +40,25 @@ class HistoricalMarketReplay:
             if state is not None:
                 self.states.append(state)
 
-    def _calculate_features(self, output_start: str | None = None) -> pd.DataFrame:
-        return build_market_features(
-            self.history,
+    def _calculate_features(self, output_start: str | None = None, observations=()) -> pd.DataFrame:
+        if not hasattr(self, "_close"):
+            self._close, self._returns = build_price_panels(self.history)
+        if observations:
+            event_day = pd.Timestamp(output_start)
+            prices = {item.code: item.value for item in observations if self.by_code[item.code].meta.field == "close"}
+            if prices:
+                row = pd.DataFrame(
+                    [[prices.get(code, float("nan")) for code in self._close.columns]],
+                    index=pd.DatetimeIndex([event_day], name="date"),
+                    columns=self._close.columns,
+                )
+                self._close = pd.concat([self._close, row])
+                self._close.index.freq = pd.infer_freq(self._close.index) if len(self._close.index) >= 3 else None
+                positive_close = self._close.where(self._close > 0)
+                self._returns = np.log(positive_close / positive_close.shift(1))
+        return build_features_from_panels(
+            self._close,
+            self._returns,
             self.model_settings["volatility_window"],
             self.model_settings["momentum_window"],
             self.model_settings["analysis_start"],
@@ -64,7 +81,7 @@ class HistoricalMarketReplay:
             target.frame = pd.concat([target.frame, addition], ignore_index=True)
         self.last_event_date = batch.event_date
 
-        latest = self._calculate_features(batch.event_date.isoformat())
+        latest = self._calculate_features(batch.event_date.isoformat(), batch.observations)
         previous_length = len(self.features)
         if not latest.empty:
             self.features = pd.concat([self.features, latest])

@@ -78,9 +78,9 @@ def measure_replay_run(
     original_features = engine._calculate_features
     original_predict = engine.model_session.predict_latest
 
-    def timed_features(output_start: str | None = None):
+    def timed_features(output_start: str | None = None, observations=()):
         started = clock()
-        result = original_features(output_start)
+        result = original_features(output_start, observations)
         current["feature_call_ms"] = (clock() - started) * 1000
         current["feature_calls"] = current.get("feature_calls", 0) + 1
         return result
