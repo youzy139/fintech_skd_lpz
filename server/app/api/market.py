@@ -39,6 +39,16 @@ def regimes(request: Request, start: str | None = None, end: str | None = None, 
     return filtered[-limit:]
 
 
+@router.get("/api/regimes/evaluation/stability")
+def regime_stability(request: Request):
+    try:
+        return current_service(request).stability_evaluation()
+    except FileNotFoundError as error:
+        raise HTTPException(404, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
+
+
 @router.get("/api/internal/alert-states", include_in_schema=False)
 def alert_states(request: Request):
     return current_service(request).alert_states()

@@ -23,6 +23,7 @@ def fake_service():
         asset_series=helper.asset_series,
         feature_metadata=lambda: {"feature_contract": {"feature_version": "test-features"}, "input_version": "test-input"},
         latest_features=lambda: {name: state[name] for name in ("date", "features", "contributions", "model_version")},
+        stability_evaluation=lambda: {"report_type": "regime_stability", "evaluation_version": "stability-v1", "runs": []},
         feature_cache_status=lambda: {"enabled": False, "view": "current-market"},
         home_summary=lambda: {"latest": state, "alert_count": 1, "loaded_assets": 1, "total_rows": 2, "state_count": 1},
         health_details=lambda: {"storage_mode": "local", "assets": 1, "states": 1},
@@ -74,6 +75,20 @@ def test_home_summary_is_small_and_complete():
         assert summary["total_rows"] == 2
         assert "states" not in summary
         assert "alerts" not in summary
+
+
+def test_stability_report_uses_read_only_service_and_stable_errors():
+    service = fake_service()
+    with TestClient(create_app(service, initialize=False)) as http:
+        assert http.get("/api/regimes/evaluation/stability").json()["evaluation_version"] == "stability-v1"
+        service.stability_evaluation = lambda: (_ for _ in ()).throw(FileNotFoundError("尚未生成模型稳定性报告，请先运行只读评估脚本"))
+        missing = http.get("/api/regimes/evaluation/stability")
+        assert missing.status_code == 404
+        assert missing.json()["error"]["code"] == "not_found"
+        service.stability_evaluation = lambda: (_ for _ in ()).throw(ValueError("稳定性报告与当前输入、特征或模型配置不匹配，请重新生成"))
+        stale = http.get("/api/regimes/evaluation/stability")
+        assert stale.status_code == 409
+        assert stale.json()["detail"].startswith("稳定性报告与当前输入")
 
 
 def test_websocket_replay_has_event_time():

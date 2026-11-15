@@ -2,6 +2,7 @@ export const pages = [
   ['home', '终端首页', 'home', 'MARKET TERMINAL', 'research'],
   ['overview', '市场总览', 'overview', 'MARKET OVERVIEW', 'research'],
   ['regimes', '状态分析', 'regimes', 'MARKET REGIMES', 'research'],
+  ['evaluation', '评估报告', 'regimes', 'MODEL EVALUATION', 'research'],
   ['features', '特征分析', 'features', 'FEATURE EXPLORER', 'research'],
   ['alerts', '预警中心', 'alerts', 'RISK & EVIDENCE', 'research'],
   ['replay', '历史回放', 'replay', 'HISTORICAL REPLAY', 'research'],

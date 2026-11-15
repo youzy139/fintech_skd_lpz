@@ -21,3 +21,36 @@ export type ReplayTiming = { engine_start_ms: number | null; pipeline_start_ms: 
 export type ReplayRecovery = { state: 'none' | 'paused' | 'rebuilding' | 'completed' | 'failed'; count: number; rebuild_ms: number | null }
 export type ReplaySession = { id: string; run_id?: string | null; flink_job_id?: string | null; savepoint_path?: string | null; model_identity?: string; calculation_contract?: CalculationContract | null; lineage_status?: string; mode: 'local' | 'kafka' | 'flink'; start_date: string; end_date: string; status: 'pending' | 'running' | 'paused' | 'completed' | 'failed'; speed: number; processed_days: number; total_days: number; current_date: string | null; progress: number; error: string | null; latest_sequence?: number; recovery?: ReplayRecovery; event_stats: ReplayEventStats; timing?: ReplayTiming; latest_result: ReplayResult | null }
 export type ReplayResultsPage = { session_id: string; results: { sequence: number; event_date: string; result: ReplayResult }[]; next_sequence: number; has_more: boolean }
+export type StabilityPeriod = 'all' | 'development' | 'validation' | 'holdout'
+export type StabilityDistribution = { min: number | null; median: number | null; max: number | null }
+export type StabilityRunPeriod = {
+  state_days: number; first_state: string | null; last_state: string | null
+  switch_count: number; switches_per_100_state_days: number | null
+  refit_boundary_count: number; refit_boundary_switch_count: number
+  refit_boundary_switch_share: number | null; refit_boundary_switch_rate: number | null
+  episode_count: number; median_duration_days: number | null; p90_duration_days: number | null; max_duration_days: number | null
+  semantic_distribution: Record<string, number>
+}
+export type StabilityRun = {
+  run_id: string; training_window: number; refit_interval: number; random_seed: number; is_reference: boolean
+  periods: Record<StabilityPeriod, StabilityRunPeriod>
+}
+export type StabilityComparison = {
+  period: StabilityPeriod; left_run_id: string; right_run_id: string
+  common_state_days: number; common_start: string | null; common_end: string | null
+  adjusted_rand_index: number | null; semantic_agreement: number | null
+}
+export type StabilityReport = {
+  schema_version: number; report_type: 'regime_stability'; evaluation_version: string; evaluation_id: string
+  protocol_version: string; protocol_status: string; reference_run_id: string
+  generated_at: string; input_version: string; feature_version: string; feature_sha256: string; feature_days: number
+  loaded_assets: number; model_parameters: Record<string, string | number>
+  fixed: { minimum_history: number; cluster_count: number; regime_identity: string }
+  grid: { training_windows: number[]; refit_intervals: number[]; random_seeds: number[]; run_count: number }
+  period_definitions: Record<StabilityPeriod, { label: string; start: string | null; end: string | null }>
+  runs: StabilityRun[]; comparisons: StabilityComparison[]
+  summary: Record<StabilityPeriod, { pair_count: number; common_state_days: StabilityDistribution; adjusted_rand_index: StabilityDistribution; semantic_agreement: StabilityDistribution }>
+  metric_definitions: Record<string, string>; limitations: string[]
+  source_sha256: Record<string, string>
+  daily_results?: { file: string; sha256: string; run_count: number; state_days: number }
+}

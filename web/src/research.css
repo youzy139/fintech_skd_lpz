@@ -674,3 +674,30 @@ summary { color: #596571; cursor: pointer; font-size: 11px; line-height: 1.7; }
 .file-governance .table-wrap { max-height: 360px; overflow: auto; }
 .file-governance td:first-child { overflow-wrap: anywhere; }
 .file-governance header { gap: 12px; flex-wrap: wrap; }
+.report-actions { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.report-actions label { display: grid; gap: 5px; color: #68707b; font-size: 11px; }
+.report-actions select { min-width: 150px; }
+.evaluation-notice { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: #f8eeee; border-left: 3px solid #a83b42; color: #65363a; }
+.evaluation-notice p { margin: 0; line-height: 1.7; }
+.evaluation-notice strong { display: block; margin-bottom: 3px; }
+.evaluation-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 18px 0 0; }
+.evaluation-facts dt { color: #68707b; font-size: 12px; }
+.evaluation-facts dd { margin: 5px 0 0; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.stability-runs .table-wrap, .stability-matrix-panel .table-wrap { overflow-x: auto; }
+.stability-run-table { min-width: 980px; }
+.stability-matrix { min-width: 900px; }
+.stability-matrix th, .stability-matrix td { text-align: center; font-variant-numeric: tabular-nums; }
+.stability-matrix th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; text-align: left; }
+.stability-matrix abbr { text-decoration: none; font-size: 11px; }
+.evaluation-lineage > summary { cursor: pointer; font-weight: 600; }
+.evaluation-lineage > div, .evaluation-lineage dl { margin-top: 14px; }
+.evaluation-limitations { margin: 18px 0 0; padding-left: 20px; color: #4f5965; line-height: 1.75; }
+@media (max-width: 900px) {
+  .evaluation-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .report-actions { align-items: stretch; width: 100%; }
+  .report-actions label, .report-actions select { width: 100%; }
+  .evaluation-facts { grid-template-columns: 1fr; gap: 10px; }
+  .evaluation-notice { padding: 12px; }
+}

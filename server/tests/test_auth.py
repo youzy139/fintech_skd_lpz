@@ -91,6 +91,7 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     assert client.get("/api/assets", headers=observer).status_code == 200
     assert client.get("/api/features/metadata", headers=observer).status_code == 200
     assert client.get("/api/features/latest", headers=observer).status_code == 200
+    assert client.get("/api/regimes/evaluation/stability", headers=observer).status_code == 200
     assert client.get("/api/data/records", headers=observer).status_code == 200
     assert client.post("/api/replay/sessions", json={"start_date": "2024-01-01", "end_date": "2024-01-02"}, headers=observer).status_code == 403
     assert client.get("/api/auth/users", headers=observer).status_code == 403
@@ -191,6 +192,7 @@ def test_asset_and_source_scopes_filter_resources_and_block_aggregates(secured):
     assert client.get("/api/assets/TEST/series", headers=scoped).status_code == 200
     assert client.get("/api/assets/OTHER/series", headers=scoped).status_code == 404
     assert client.get("/api/regimes/latest", headers=scoped).status_code == 403
+    assert client.get("/api/regimes/evaluation/stability", headers=scoped).status_code == 403
     assert client.get("/api/features/latest", headers=scoped).status_code == 403
     assert [item["id"] for item in client.get("/api/data/files", headers=scoped).json()["items"]] == ["source"]
     assert client.get("/api/data/files/source/records", headers=scoped).status_code == 200

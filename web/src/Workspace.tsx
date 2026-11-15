@@ -11,6 +11,7 @@ const descriptions: Partial<Record<Page, string>> = {
   home: '聚合市场状态、数据基础与研究入口。',
   overview: '从资产走势、市场状态与风险信号进入研究。',
   regimes: '沿时间复核市场状态、训练边界与特征变化。',
+  evaluation: '复核完整参数网格下的状态稳定性、实验血缘与评估边界。',
   features: '比较多资产特征的历史变化与标准化偏离。',
   alerts: '按确定性规则定位异常，并核对统计与背景证据。',
   replay: '按事件时间重现当时可见数据形成的判断。',
