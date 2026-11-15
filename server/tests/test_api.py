@@ -24,6 +24,7 @@ def fake_service():
         feature_metadata=lambda: {"feature_contract": {"feature_version": "test-features"}, "input_version": "test-input"},
         latest_features=lambda: {name: state[name] for name in ("date", "features", "contributions", "model_version")},
         stability_evaluation=lambda: {"report_type": "regime_stability", "evaluation_version": "stability-v1", "runs": []},
+        computation_performance=lambda: {"report_type": "model_computation_performance", "performance_version": "model-computation-performance-v1", "summary": {}},
         research_case=lambda: {"case_version": "research-case-v1", "case_id": "case-test", "is_financial_event_label": False},
         feature_cache_status=lambda: {"enabled": False, "view": "current-market"},
         home_summary=lambda: {"latest": state, "alert_count": 1, "loaded_assets": 1, "total_rows": 2, "state_count": 1},
@@ -90,6 +91,16 @@ def test_stability_report_uses_read_only_service_and_stable_errors():
         stale = http.get("/api/regimes/evaluation/stability")
         assert stale.status_code == 409
         assert stale.json()["detail"].startswith("稳定性报告与当前输入")
+
+
+def test_computation_performance_report_has_stable_missing_and_stale_errors():
+    service = fake_service()
+    with TestClient(create_app(service, initialize=False)) as http:
+        assert http.get("/api/system/computation-performance").json()["performance_version"] == "model-computation-performance-v1"
+        service.computation_performance = lambda: (_ for _ in ()).throw(FileNotFoundError("尚未生成单日计算性能报告，请先运行只读基准脚本"))
+        assert http.get("/api/system/computation-performance").status_code == 404
+        service.computation_performance = lambda: (_ for _ in ()).throw(ValueError("单日计算性能报告与当前输入、特征、模型或计算源码不匹配，请重新生成"))
+        assert http.get("/api/system/computation-performance").status_code == 409
 
 
 def test_latest_research_case_has_stable_not_found_contract():

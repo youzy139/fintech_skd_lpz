@@ -4,12 +4,13 @@ from app.version import __version__
 
 import asyncio
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import current_service
 from app.core.config import load_config
 from app.services.dependencies import DependencyMonitor
+from app.services.feature_proxy import forward_feature_request
 
 router = APIRouter(tags=["system"])
 
@@ -51,6 +52,19 @@ async def metrics(request: Request):
 @router.get("/api/system/feature-cache")
 def feature_cache(request: Request):
     return current_service(request).feature_cache_status()
+
+
+@router.get("/api/system/computation-performance")
+async def computation_performance(request: Request):
+    config = load_config()
+    if config.feature_service["url"]:
+        return await forward_feature_request(request, config.feature_service["url"], float(config.feature_service["timeout_seconds"]))
+    try:
+        return current_service(request).computation_performance()
+    except FileNotFoundError as error:
+        raise HTTPException(404, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
 
 
 @router.get("/api/system/dependencies")

@@ -54,13 +54,17 @@ def prepare(root: Path):
         "ALERT_SERVICE_URL": "",
     })
     from app.services.catalog import CatalogStore
+    from app.services.replay import ReplayDataCatalog
     from app.services.stability import build_stability_report, write_json
+    from server.benchmarks.model_computation_performance import build_performance_report
     from market_core.domain.sources import SourceFile
     from market_core.ingestion.assets import AssetRepository
 
     series, _ = AssetRepository(data_root).load_all()
     stability, _ = build_stability_report(series, example["model"])
     write_json(root / "benchmarks" / "regime-stability.json", stability)
+    performance = build_performance_report(series, example["model"], example["alerts"], ReplayDataCatalog(series).dates[-62:-57], runs=2, data_profile="synthetic-e2e")
+    write_json(root / "benchmarks" / "model-computation-performance.json", performance)
 
     social = data_root / "科技.csv"
     with social.open("w", encoding="utf-8", newline="") as handle:

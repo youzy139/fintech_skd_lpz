@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
+import { ComputationPerformancePanel, type ComputationPerformanceReport } from './ComputationPerformancePanel'
 import { ErrorMessage, Metric, Panel } from './ui'
 
 type Check = { name: string; status: 'ok' | 'disabled' | 'unavailable'; latency_ms: number | null; probe?: string; error_type?: string }
@@ -16,12 +17,18 @@ export function SystemStatus() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(true)
   const [featureCache, setFeatureCache] = useState<FeatureCache | null>(null)
+  const [performance, setPerformance] = useState<ComputationPerformanceReport | null>(null)
+  const [performanceError, setPerformanceError] = useState('')
   const load = useCallback(async (signal?: AbortSignal) => {
     setBusy(true); setError('')
     try {
       const next = await api<Report & { feature_cache?: FeatureCache }>('/api/system/dependencies', signal)
       setReport(next)
       setFeatureCache(next.feature_cache ?? null)
+      setPerformance(null)
+      setPerformanceError('')
+      try { setPerformance(await api<ComputationPerformanceReport>('/api/system/computation-performance', signal)) }
+      catch (reason) { if (!signal?.aborted) setPerformanceError(reason instanceof Error ? reason.message : '计算性能报告不可用') }
     }
     catch (reason) { if (!signal?.aborted) setError(reason instanceof Error ? reason.message : '无法加载依赖状态') }
     finally { if (!signal?.aborted) setBusy(false) }
@@ -35,6 +42,7 @@ export function SystemStatus() {
       {featureCache && <Panel title="热特征缓存" subtitle="来自实际特征服务的进程累计统计；当前市场视图与已保存回放分开读取">
         {featureCache.status === 'unavailable' ? <p role="alert">特征缓存监控暂不可用</p> : featureCache.status === 'uninitialized' ? <p>特征尚未初始化</p> : !featureCache.enabled ? <p>Redis 热特征缓存未启用，读取已计算的特征快照。</p> : <><div className="metrics three"><Metric label="有效命中" value={featureCache.validated_hits ?? 0} detail={`特征日期 ${featureCache.date ?? '—'}`} /><Metric label="快照回源" value={featureCache.fallbacks ?? 0} detail={`无效缓存 ${featureCache.rejected ?? 0} 次`} /><Metric label="Redis 异常" value={featureCache.shared?.errors ?? 0} detail={`TTL ${featureCache.shared?.ttl_seconds ?? 0}s`} /></div>{featureCache.shared && <CircuitStatus title="特征缓存熔断" circuit={featureCache.shared.circuit} />}<p className="method-note">键包含特征、行情输入、模型参数/身份、日期和功能域范围；Redis 故障时返回同一已计算快照。当前所有 market 用户共享完整资产范围，尚未实现行级权限。此统计不是延迟达标报告。</p></>}
       </Panel>}
+      <ComputationPerformancePanel report={performance} error={performanceError} />
       <p className="method-note">熔断打开时，普通读取使用受限本地降级；管理、回放控制和连接租约保持失败关闭。恢复探测成功后自动闭合，无需重启服务。</p>
     </>}
   </div>

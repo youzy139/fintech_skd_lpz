@@ -11,6 +11,7 @@ from app.services.context_evidence import attach_context
 from app.services.cache import RedisJsonCache
 from app.services.feature_cache import FeatureSnapshotCache
 from app.services.storage import SnapshotStore
+from app.services.model_performance import load_performance_report
 from app.services.stability import load_stability_report
 from market_core.domain.market import AssetSeries
 from market_core.ingestion.assets import AssetRepository
@@ -118,6 +119,11 @@ class MarketService:
         if not self._feature_metadata:
             raise RuntimeError("特征元数据尚未初始化")
         return load_stability_report(self.config.database_path, self._feature_metadata)
+
+    def computation_performance(self) -> dict[str, Any]:
+        if not self._feature_metadata:
+            raise RuntimeError("特征元数据尚未初始化")
+        return load_performance_report(self.config.database_path, self._feature_metadata)
 
     def feature_cache_status(self) -> dict[str, Any]:
         if self._feature_snapshot is None:
