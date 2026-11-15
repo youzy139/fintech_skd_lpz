@@ -46,7 +46,7 @@ def test_file_report_is_scoped_and_uses_only_preaggregated_evidence(catalog, tmp
     assert report["fields"][0]["empty_or_absent_ratio"] == pytest.approx(1 / 3)
     assert report["duplicate_records"] is report["invalid_records"] is None
     assert all("source_records" not in sql for sql in calls)
-    assert all(sql.startswith("SELECT ") for sql in calls)
+    assert all(sql.startswith("SELECT ") or sql == "PRAGMA data_version" for sql in calls)
     assert catalog.file_governance("' OR 1=1 --") is None
 
 

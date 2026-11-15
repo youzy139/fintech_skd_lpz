@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal
+import asyncio
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query as QueryParam, Request
 
@@ -11,16 +12,35 @@ from app.services.remote_catalog import DataServiceError
 router = APIRouter(tags=["data"])
 
 
+async def summary_result(service: Any):
+    fast = getattr(getattr(service, "catalog", None), "try_local_summary", None)
+    if fast is not None:
+        hit, value = fast()
+        if hit:
+            return value
+    return await asyncio.to_thread(service.source_summary)
+
+
+async def records_result(service: Any, source_id: str | None, query: str | None, date: str | None, offset: int, limit: int, kind: str | None, tag: str | None, tags: list[str], match: str):
+    fast = getattr(getattr(service, "catalog", None), "try_local_records", None)
+    arguments = (source_id, query, date, offset, limit, kind, tag, tags, match)
+    if fast is not None:
+        hit, value = fast(*arguments)
+        if hit:
+            return value
+    return await asyncio.to_thread(service.source_records, *arguments)
+
+
 @router.get("/api/data/version")
 def data_version(request: Request):
     return {"data_version": current_service(request).data_version()}
 
 
 @router.get("/api/data/summary")
-def source_summary(request: Request):
+async def source_summary(request: Request):
     if not has_full_scope(getattr(request.state, "principal", None), "source"):
         raise HTTPException(403, "来源范围受限账号不可查看全局汇总信息")
-    return current_service(request).source_summary()
+    return await summary_result(current_service(request))
 
 
 @router.get("/api/data/overview")
@@ -48,10 +68,10 @@ def source_governance(request: Request, kind: Literal["asset", "calendar", "comm
 
 
 @router.get("/api/data/records")
-def records(request: Request, kind: str | None = None, query: str | None = None, date: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
+async def records(request: Request, kind: str | None = None, query: str | None = None, date: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
     if not has_full_scope(getattr(request.state, "principal", None), "source"):
         raise HTTPException(403, "来源范围受限账号请先选择已授权来源查询记录")
-    return current_service(request).source_records(None, query, date, offset, limit, kind, tag, tags, match)
+    return await records_result(current_service(request), None, query, date, offset, limit, kind, tag, tags, match)
 
 
 @router.get("/api/data/files")
@@ -73,9 +93,9 @@ def source_files(request: Request, kind: str | None = None, query: str | None = 
 
 
 @router.get("/api/data/files/{source_id}/records")
-def source_records(source_id: str, request: Request, query: str | None = None, date: str | None = None, kind: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
+async def source_records(source_id: str, request: Request, query: str | None = None, date: str | None = None, kind: str | None = None, tag: str | None = None, tags: list[str] = QueryParam(default=[], max_length=5), match: str = QueryParam("any", pattern="^(any|all)$"), offset: int = QueryParam(0, ge=0), limit: int = QueryParam(20, ge=1, le=100)):
     require_scope(getattr(request.state, "principal", None), "source", source_id)
-    return current_service(request).source_records(source_id, query, date, offset, limit, kind=kind, tag=tag, tags=tags, match=match)
+    return await records_result(current_service(request), source_id, query, date, offset, limit, kind, tag, tags, match)
 
 
 @router.get("/api/data/files/{source_id}/governance")

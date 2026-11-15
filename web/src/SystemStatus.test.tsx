@@ -119,7 +119,15 @@ it('shows independent API samples, cold rounds and honest baseline changes', asy
     report_type: 'independent_user_api_performance', performance_version: 'independent-user-api-performance-v1', generated_at: '2026-11-16T00:00:00+00:00',
     configuration: { users: 101, rounds: 5, warmup_requests: 10, timeout_seconds: 10, scenarios, server_thread_pool_size: 40 },
     identity: { unique_sessions: 101, type: 'independent_synthetic_user_jwt' }, environment: { git_revision: 'abcdef1234567890', platform: 'test', python: '3.12' },
-    measurement: { new_connection_per_request: group(347.789), keep_alive_per_user: group(407.769) },
+    measurement: { new_connection_per_request: group(347.789), keep_alive_per_user: group(407.769), server_metrics: { routes: [
+      { route: '/api/data/summary', sample_size: 204, p95_ms: 33.697, auth_p95_ms: 13.995, governance_p95_ms: 0.016 },
+      { route: '/api/data/records', sample_size: 204, p95_ms: 33.368, auth_p95_ms: 14.394, governance_p95_ms: 0.014 },
+    ] } },
+    catalog_version_performance: {
+      performance_version: 'catalog-version-performance-v1', source_files: 1046, samples_per_path: 200,
+      legacy: { p50_ms: 1.401, p95_ms: 1.458, mean_ms: 1.411 }, cached: { p50_ms: 0.003, p95_ms: 0.006, mean_ms: 0.004 }, mean_reduction_percent: 99.717,
+      limitations: '只测未变化 SQLite 数据版本查询路径，不是端到端性能结论',
+    },
     target_evaluation: { independent_users_above_100: true, all_requests_successful: true, api_p95_below_50ms: false, passes_provisional_target: false, note: '同机合成读取' },
     baseline_comparison: {
       comparison_version: 'api-performance-baseline-comparison-v1', baseline_generated_at: '2026-11-15T00:00:00+00:00', baseline_git_revision: '1234567890abcdef', interpretation: '同机同配置先后测量',
@@ -142,6 +150,11 @@ it('shows independent API samples, cold rounds and honest baseline changes', asy
   expect(screen.getByRole('heading', { name: 'API 前后同口径对照' })).toBeInTheDocument()
   expect(screen.getByText('减少 85.356 ms（19.71%）')).toBeInTheDocument()
   expect(screen.getByText('增加 9.330 ms（2.34%）')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '目录数据版本微基准' })).toBeInTheDocument()
+  expect(screen.getByText('1,046 个来源文件', { exact: false })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '服务端路由分段（进程内）' })).toBeInTheDocument()
+  expect(screen.getByText('33.368 ms')).toBeInTheDocument()
+  expect(screen.getByText('均值减少 99.717%', { exact: false })).toBeInTheDocument()
   expect(screen.getByText('第 1 轮 · 冷轮次保留')).toBeInTheDocument()
   expect(screen.getByText('abcdef123456')).toBeInTheDocument()
 })

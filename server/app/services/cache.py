@@ -31,20 +31,34 @@ class LocalJsonCache:
         self.stats = {"hits": 0, "misses": 0, "writes": 0, "evictions": 0, "expirations": 0}
 
     def get(self, key: str) -> tuple[bool, Any]:
-        now = self.clock()
         with self.lock:
-            entry = self.values.pop(key, None)
-            if entry is None:
+            return self._get_locked(key)
+
+    def try_get(self, key: str) -> tuple[bool, Any]:
+        """Serve an immediate hit; the worker fallback owns any miss accounting."""
+        if not self.lock.acquire(blocking=False):
+            return False, None
+        try:
+            return self._get_locked(key, count_miss=False)
+        finally:
+            self.lock.release()
+
+    def _get_locked(self, key: str, count_miss: bool = True) -> tuple[bool, Any]:
+        now = self.clock()
+        entry = self.values.pop(key, None)
+        if entry is None:
+            if count_miss:
                 self.stats["misses"] += 1
-                return False, None
-            expires, value = entry
-            if expires <= now:
+            return False, None
+        expires, value = entry
+        if expires <= now:
+            if count_miss:
                 self.stats["misses"] += 1
-                self.stats["expirations"] += 1
-                return False, None
-            self.values[key] = entry
-            self.stats["hits"] += 1
-            return True, copy.deepcopy(value)
+            self.stats["expirations"] += 1
+            return False, None
+        self.values[key] = entry
+        self.stats["hits"] += 1
+        return True, copy.deepcopy(value)
 
     def set(self, key: str, value: Any) -> None:
         with self.lock:
@@ -161,9 +175,12 @@ class CachedCatalogStore:
     def data_version(self) -> str:
         return self.delegate.data_version()
 
+    def _cache_key(self, method: str, arguments: Any, version: str) -> str:
+        identity = json.dumps([self.namespace, version, method, arguments], ensure_ascii=False, sort_keys=True, default=str)
+        return self.namespace + ":" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
     def _cached(self, method: str, arguments: Any, loader: Callable[[], Any]) -> Any:
-        identity = json.dumps([self.namespace, self.data_version(), method, arguments], ensure_ascii=False, sort_keys=True, default=str)
-        key = self.namespace + ":" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        key = self._cache_key(method, arguments, self.data_version())
         if self.local:
             hit, value = self.local.get(key)
             if hit:
@@ -180,6 +197,26 @@ class CachedCatalogStore:
         if self.local:
             self.local.set(key, result)
         return result
+
+    def _try_local(self, method: str, arguments: Any) -> tuple[bool, Any]:
+        if self.local is None:
+            return False, None
+        try_version = getattr(self.delegate, "try_data_version", None)
+        if try_version is None:
+            return False, None
+        version = try_version()
+        if version is None:
+            return False, None
+        return self.local.try_get(self._cache_key(method, arguments, version))
+
+    def try_local_summary(self) -> tuple[bool, Any]:
+        return self._try_local("summary", None)
+
+    def try_local_records(self, source_id: str | None, query: str | None, date: str | None, offset: int, limit: int, kind: str | None = None, tag: str | None = None, tags: list[str] | None = None, match: str = "any") -> tuple[bool, Any]:
+        if offset != 0 or limit > 100:
+            return False, None
+        arguments = [source_id, query, date, limit, kind, tag, tags, match]
+        return self._try_local("records", arguments)
 
     def summary(self) -> dict[str, Any]:
         return self._cached("summary", None, self.delegate.summary)

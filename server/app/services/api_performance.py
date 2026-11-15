@@ -31,6 +31,10 @@ def performance_report_path(database_path: Path) -> Path:
     return database_path.parent / "benchmarks" / "independent-users.json"
 
 
+def catalog_version_report_path(database_path: Path) -> Path:
+    return database_path.parent / "benchmarks" / "catalog-version-performance.json"
+
+
 def load_api_performance_report(database_path: Path) -> dict[str, Any]:
     path = performance_report_path(database_path)
     try:
@@ -45,4 +49,20 @@ def load_api_performance_report(database_path: Path) -> dict[str, Any]:
         or report.get("source_sha256") != source_sha256()
     ):
         raise ValueError("独立用户 API 性能报告与当前运行源码不匹配，请重新生成")
+    catalog_path = catalog_version_report_path(database_path)
+    try:
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        catalog = None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("目录数据版本性能报告不可读取，请重新生成") from error
+    if catalog is not None:
+        expected_environment = {key: report.get("environment", {}).get(key) for key in ("platform", "python", "cpu_count")}
+        if (
+            catalog.get("performance_version") != "catalog-version-performance-v1"
+            or catalog.get("catalog_source_sha256") != hashlib.sha256((ROOT / "server/app/services/catalog.py").read_bytes()).hexdigest()
+            or any(catalog.get("environment", {}).get(key) != value for key, value in expected_environment.items())
+        ):
+            raise ValueError("目录数据版本性能报告与当前目录源码或运行环境不匹配，请重新生成")
+        report["catalog_version_performance"] = catalog
     return report

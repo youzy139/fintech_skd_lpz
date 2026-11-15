@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
@@ -7,7 +8,7 @@ from fastapi.testclient import TestClient
 
 import app.api.system as system_api
 from app.main import create_app
-from app.services.api_performance import PERFORMANCE_VERSION, performance_report_path, source_sha256
+from app.services.api_performance import PERFORMANCE_VERSION, ROOT, catalog_version_report_path, performance_report_path, source_sha256
 from app.services.api_performance import load_api_performance_report
 from test_api import fake_service
 
@@ -33,6 +34,26 @@ def test_api_performance_report_loads_only_matching_source(tmp_path):
     stale["source_sha256"]["server/app/core/auth.py"] = "stale"
     path.write_text(json.dumps(stale), encoding="utf-8")
     with pytest.raises(ValueError, match="源码不匹配"):
+        load_api_performance_report(database)
+
+
+def test_optional_catalog_report_requires_current_source_and_environment(tmp_path):
+    database = tmp_path / "market.db"
+    path = performance_report_path(database)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(valid_report()), encoding="utf-8")
+    catalog = {
+        "performance_version": "catalog-version-performance-v1",
+        "catalog_source_sha256": hashlib.sha256((ROOT / "server/app/services/catalog.py").read_bytes()).hexdigest(),
+        "source_files": 1046,
+        "environment": {},
+    }
+    catalog_path = catalog_version_report_path(database)
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+    assert load_api_performance_report(database)["catalog_version_performance"]["source_files"] == 1046
+    catalog["catalog_source_sha256"] = "stale"
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+    with pytest.raises(ValueError, match="目录数据版本性能报告与当前目录源码"):
         load_api_performance_report(database)
 
 

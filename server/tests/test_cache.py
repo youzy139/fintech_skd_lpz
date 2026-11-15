@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import csv
+import sqlite3
 from dataclasses import replace
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 from redis.exceptions import RedisError
@@ -76,6 +78,26 @@ def test_cache_hits_and_content_version_invalidation(tmp_path: Path):
         cached.close()
 
 
+def test_data_version_reuses_unchanged_scan_and_detects_external_and_local_writes(tmp_path: Path):
+    store, _, cached = populated_store(tmp_path)
+    statements = []
+    store.connection.set_trace_callback(statements.append)
+    try:
+        first = cached.data_version()
+        assert cached.data_version() == first
+        assert sum(statement.startswith("SELECT id, size, mtime_ns") for statement in statements) == 1
+        with sqlite3.connect(tmp_path / "catalog.db") as external:
+            external.execute("UPDATE source_files SET mtime_ns=mtime_ns+1")
+        second = cached.data_version()
+        assert second != first
+        assert sum(statement.startswith("SELECT id, size, mtime_ns") for statement in statements) == 2
+        cached.import_file(make_source(tmp_path, [("2024-01-01", "AI"), ("2024-01-02", "半导体"), ("2024-01-03", "通胀")]))
+        assert cached.data_version() != second
+        assert sum(statement.startswith("SELECT id, size, mtime_ns") for statement in statements) == 3
+    finally:
+        cached.close()
+
+
 def test_redis_is_shared_second_layer_and_local_values_are_isolated(tmp_path: Path):
     store, client, first = populated_store(tmp_path)
     second = CachedCatalogStore(store, RedisJsonCache(client, "test:catalog", 60), LocalJsonCache(128, 15))
@@ -91,6 +113,43 @@ def test_redis_is_shared_second_layer_and_local_values_are_isolated(tmp_path: Pa
     finally:
         first.close()
         second.close()
+
+
+def test_try_local_serves_only_immediate_current_hits_and_falls_back_on_locks(tmp_path: Path):
+    store, _, cached = populated_store(tmp_path)
+    try:
+        misses = cached.cache_stats["local"]["misses"]
+        assert cached.try_local_summary() == (False, None)
+        expected = cached.summary()
+        assert cached.cache_stats["local"]["misses"] == misses + 1
+        assert cached.try_local_summary() == (True, expected)
+        cached.local.lock.acquire()
+        try:
+            assert cached.try_local_summary() == (False, None)
+        finally:
+            cached.local.lock.release()
+        cached.import_file(make_source(tmp_path, [("2024-01-01", "AI"), ("2024-01-02", "半导体"), ("2024-01-03", "通胀")]))
+        assert cached.try_local_summary() == (False, None)
+        updated = cached.summary()
+        assert cached.try_local_summary() == (True, updated)
+        entered, release = Event(), Event()
+
+        def hold_catalog_lock():
+            with store._lock:
+                entered.set()
+                release.wait(timeout=2)
+
+        worker = Thread(target=hold_catalog_lock)
+        worker.start()
+        assert entered.wait(timeout=2)
+        try:
+            assert store.try_data_version() is None
+            assert cached.try_local_summary() == (False, None)
+        finally:
+            release.set()
+            worker.join(timeout=2)
+    finally:
+        cached.close()
 
 
 def test_local_cache_is_bounded_and_expires():

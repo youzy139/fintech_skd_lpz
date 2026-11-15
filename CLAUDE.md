@@ -121,7 +121,7 @@ docs/                   架构、数据口径、专项验收、发布记录与�
 - `AUTH_ENABLED` 本地默认 `false`，Compose 固定 `true`；角色 `observer` / `analyst` / `admin`，功能域 `market` / `catalog`，另有账号级资产/来源 ID 白名单。
 - 多服务模式必须保持一致的认证开关、身份库和签名信任域，直接访问 8001–8003 也不能绕过鉴权。首次启用认证没有默认账号；一次性初始化凭据写入身份库旁的 `auth-bootstrap.txt`，创建首位管理员后删除，不得提交、截图、记录或在回复中复述。
 - `RATE_LIMIT_MODE=local|redis`；WebSocket 与回放计算使用带续租和过期时间的租约，默认每服务 128 个订阅连接、每账号 3 个、最多 2 个运行中回放。本地内存限流直接在事件循环执行，Redis 限流保留线程池隔离。
-- 目录进程内 LRU 默认启用，即使没有 Redis；`CATALOG_LOCAL_CACHE_ENABLED=false` 可关闭。`SERVER_THREAD_POOL_SIZE=1..256` 仅在显式设置时调整 AnyIO 工作线程，默认 40。
+- 目录进程内 LRU 默认启用，即使没有 Redis；`CATALOG_LOCAL_CACHE_ENABLED=false` 可关闭。`SERVER_THREAD_POOL_SIZE=1..256` 同时约束 AnyIO 与 `asyncio.to_thread` 的默认执行器，默认 40；服务在 readiness 前创建有界执行器并预热，锁竞争的目录快速读取回退工作线程。
 - 密码和密钥只通过环境变量或被忽略的私有配置注入，不得进入源码、文档、命令、日志、测试夹具或 Git 历史。
 
 ## 核心数据与算法口径
@@ -155,4 +155,4 @@ docs/                   架构、数据口径、专项验收、发布记录与�
 - 修改解析、模型、接口、权限或服务边界时增加对应行为测试，重点覆盖时间无未来泄漏、历史结果稳定、非有限值、错误契约和跨服务一致性。
 - 完整回归按“后端 pytest + 覆盖率、前端 Vitest、生产构建、Chrome E2E”执行；改动涉及发布状态或验收数字时更新对应 `docs/releases/*`、`README.md` 和 `AGENTS.md`，不得用旧文档推断新结果。
 - 本地通过不等于远端 CI 通过；发布后须核对实际 CI 运行状态。
-- 更多细节：`AGENTS.md`、`README.md`、`docs/architecture.md`、`docs/data-model.md`、`docs/data-quality-report.md`、`docs/release-readiness.md`、`docs/roadmap.md`。
+- 更多细节：`AGENTS.md`、`README.md`、`docs/handoff-keywords.md`、`docs/architecture.md`、`docs/data-model.md`、`docs/data-quality-report.md`、`docs/release-readiness.md`、`docs/roadmap.md`。

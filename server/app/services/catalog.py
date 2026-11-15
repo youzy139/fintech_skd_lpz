@@ -31,6 +31,7 @@ class CatalogStore:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
+        self._data_version_cache: tuple[int, str] | None = None
         self.connection = sqlite3.connect(path, check_same_thread=False, timeout=60)
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA synchronous=NORMAL")
@@ -108,6 +109,7 @@ class CatalogStore:
 
     @synchronized
     def import_file(self, source: SourceFile, batch_size: int = 1000) -> dict[str, Any]:
+        self._data_version_cache = None
         cursor = self.connection.execute("INSERT INTO import_batches (source_id, status) VALUES (?, 'running')", (source.id,))
         batch_id = cursor.lastrowid
         self.connection.execute(
@@ -193,6 +195,7 @@ class CatalogStore:
 
     @synchronized
     def rebuild_statistics(self) -> dict[str, int]:
+        self._data_version_cache = None
         for table in ("source_daily_stats", "source_fields", "source_record_tags", "source_tag_stats"):
             self.connection.execute(f"DELETE FROM {table}")
         self.connection.commit()
@@ -235,8 +238,22 @@ class CatalogStore:
 
     @synchronized
     def data_version(self) -> str:
+        revision = self.connection.execute("PRAGMA data_version").fetchone()[0]
+        if self._data_version_cache is not None and self._data_version_cache[0] == revision:
+            return self._data_version_cache[1]
         rows = self.connection.execute("SELECT id, size, mtime_ns, status, record_count, error_count, updated_at FROM source_files ORDER BY id").fetchall()
-        return hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()
+        version = hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()
+        self._data_version_cache = (revision, version)
+        return version
+
+    def try_data_version(self) -> str | None:
+        """Avoid blocking the event loop; None tells callers to use the worker path."""
+        if not self._lock.acquire(blocking=False):
+            return None
+        try:
+            return self.data_version()
+        finally:
+            self._lock.release()
 
     @synchronized
     def summary(self) -> dict[str, Any]:

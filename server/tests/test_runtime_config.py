@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import anyio.to_thread
@@ -29,12 +30,20 @@ def test_thread_pool_rejects_invalid_values(monkeypatch, value):
 
 def test_worker_prewarm_happens_before_requests_and_respects_smaller_limit(monkeypatch):
     calls = []
+    executor_sizes = []
+
+    class RecordingExecutor(ThreadPoolExecutor):
+        def __init__(self, max_workers, **kwargs):
+            executor_sizes.append(max_workers)
+            super().__init__(max_workers=max_workers, **kwargs)
 
     async def fake_to_thread(function, *args):
         calls.append(function)
         function(*args)
 
+    monkeypatch.setattr("app.core.config.ThreadPoolExecutor", RecordingExecutor)
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
     monkeypatch.setenv("SERVER_THREAD_POOL_SIZE", "3")
     asyncio.run(prewarm_worker_threads())
     assert len(calls) == 3
+    assert executor_sizes == [3]

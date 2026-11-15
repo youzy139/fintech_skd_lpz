@@ -194,3 +194,23 @@ def test_data_service_failure_uses_stable_retryable_error():
         assert response.headers["Retry-After"] == "5"
         assert response.json()["error"] == {"code": "data_service_unavailable", "message": "数据服务暂时不可用", "request_id": "trace.upstream-1"}
         assert "private upstream detail" not in response.text
+
+
+def test_catalog_fast_path_returns_current_cached_values_without_worker_fallback():
+    service = fake_service()
+    summary = {"total_files": 1, "cached": True}
+    records = {"total": 1, "items": [{"title": "cached"}]}
+    service.catalog = SimpleNamespace(
+        try_local_summary=lambda: (True, summary),
+        try_local_records=lambda *args: (True, records),
+    )
+
+    def unexpected_worker_call(*args, **kwargs):
+        raise AssertionError("立即缓存命中不应回退到工作线程")
+
+    service.source_summary = unexpected_worker_call
+    service.source_records = unexpected_worker_call
+    with TestClient(create_app(service, initialize=False)) as http:
+        assert http.get("/api/data/summary").json() == summary
+        assert http.get("/api/data/records").json() == records
+        assert http.get("/api/data/files/source/records").json() == records

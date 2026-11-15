@@ -7,29 +7,36 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from concurrent.futures import ThreadPoolExecutor
+
 import anyio.to_thread
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
 
 
-def configure_thread_pool_from_env() -> None:
+def thread_pool_size_from_env() -> int:
     configured = os.getenv("SERVER_THREAD_POOL_SIZE")
     if configured is None:
-        return
+        return 40
     try:
         size = int(configured)
     except ValueError as error:
         raise ValueError("SERVER_THREAD_POOL_SIZE 必须是 1～256 的整数") from error
     if not 1 <= size <= 256:
         raise ValueError("SERVER_THREAD_POOL_SIZE 必须是 1～256 的整数")
-    anyio.to_thread.current_default_thread_limiter().total_tokens = size
+    return size
+
+
+def configure_thread_pool_from_env() -> None:
+    anyio.to_thread.current_default_thread_limiter().total_tokens = thread_pool_size_from_env()
 
 
 async def prewarm_worker_threads() -> None:
-    """Finish default executor startup before readiness; request timings still include all work."""
-    default_workers = min(32, (os.cpu_count() or 1) + 4)
-    configured = int(os.getenv("SERVER_THREAD_POOL_SIZE", default_workers))
-    await asyncio.gather(*(asyncio.to_thread(lambda: None) for _ in range(min(default_workers, configured))))
+    """Use one bound for AnyIO and asyncio work, and finish startup before readiness."""
+    size = thread_pool_size_from_env()
+    executor = ThreadPoolExecutor(max_workers=size, thread_name_prefix="marketlens-worker")
+    asyncio.get_running_loop().set_default_executor(executor)
+    await asyncio.gather(*(asyncio.to_thread(lambda: None) for _ in range(size)))
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,8 @@
 
 `v0.6.8` 新增独立用户 API 性能 JSON，保存合成账号/会话数量、真实 HTTP 请求样本、连接模式、逐轮延迟、运行环境和源码摘要；报告位于 Git 忽略的基准目录，不新增 SQL 实体，不读取正式账号或作为业务事实源。认证仍读取原有用户和会话表，只将两次查询合并为一次连接查询。
 
+`v0.6.8` 同版本追加修改为 SQLite `data_version` 增加进程内精确摘要复用，不新增表或版本字段；首次和外部变化后仍从 `source_files` 全行计算同一 SHA-256，自身导入主动失效。目录快速路径仍按当前版本键读取既有本地结果，锁竞争或未命中回退原路径，不新增事实源或账号裁剪缓存。可选 `catalog-version-performance-v1` JSON 只记录只读微基准。用户明确要求保持 `0.6.8` 推送，不创建或移动标签。
+
 ## 数据目录与原始血缘
 
 `v0.4.0` 开发首批新增特征元数据 API，区分 `feature_version`、目录 `data_version`、行情 `input_version`。新会话 `snapshot_json` 保存 `calculation_contract`（模型参数、两个实际使用的回放分位数、特征定义、截至日行情摘要与契约版本）及 `lineage_status=pinned`，无需 SQL 改表；旧快照无契约为 `legacy-unpinned`，已有 `result_json` 不迁移。摘要是派生行情输入的标识，不等于原始文件摘要或防篡改签名。详见 [契约定义](v0.4.0-feature-contracts.md)。
