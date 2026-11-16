@@ -5,9 +5,11 @@
 ## 1. 可直接复制给接手模型
 
 ```text
-你正在接手 MarketLens（2026 年上海科技大学金融科技竞赛）。先读 AGENTS.md、CLAUDE.md、README.md、docs/roadmap.md、docs/release-readiness.md、docs/v0.6.10-page-performance.md、docs/v0.6.9-redis-feature-performance.md，再运行 git status、git log 和 scripts/check_versions.py 核对实际状态。
+你正在接手 MarketLens（2026 年上海科技大学金融科技竞赛）。先读 AGENTS.md、CLAUDE.md、README.md、docs/roadmap.md、docs/release-readiness.md、docs/v0.6.11-research-workspace.md、docs/v0.6.10-page-performance.md、docs/v0.6.9-redis-feature-performance.md，再运行 git status、git log 和 scripts/check_versions.py 核对实际状态。
 
-当前基线是 v0.6.10；页面性能批次已获固定网站验收并发布。9 个主要页面最终 63/63 样本成功，冷加载整体 p95 957.171ms、热 reload 906.960ms，本范围均通过暂定 <2s；Slow 4G p95 25,266.879ms，仅作参考。先读 docs/v0.6.10-page-performance.md，不得外推为生产构建、公网或全设备性能；本版远端 CI 按准确提交另行核验。
+当前基线是 v0.6.11；账号级研究工作区已获固定网站验收并发布。市场总览可保存筛选、观察列表、选中资产和走势范围；后端 302 项、覆盖率 80.81%，前端 71 项、构建与扩展 E2E 通过。先读 docs/v0.6.11-research-workspace.md；本版远端 CI 按准确提交另行核验。当前源码页面复测 63/63 成功，冷/热 p95 956.299/900.817ms，不是加速证据。
+
+此前 v0.6.10 页面性能批次已获固定网站验收并发布，准确提交 `eccf62a8f248a2f45465e888803d346bd3938dca` 的五项远端 CI 均已核验成功，运行 `43857217176`。9 个主要页面最终 63/63 样本成功，冷加载整体 p95 957.171ms、热 reload 906.960ms，本范围均通过暂定 <2s；Slow 4G p95 25,266.879ms，仅作参考。先读 docs/v0.6.10-page-performance.md，不得外推为生产构建、公网或全设备性能。
 
 此前 v0.6.9 Redis 热特征批次已获固定网站验收并发布，准确提交 `b5409c95c06f8aeda7703343ba8a94603dd889cd` 的五项远端 CI 均已核验成功，运行 `43843436568`。真实 Redis 8.0.5、合成三资产的 1,000 次生产服务有效命中 p95 0.795ms，本范围通过暂定 <10ms；11 项行为检查通过。先读 docs/v0.6.9-redis-feature-performance.md；不得外推为多节点、真实行情或正式容量验收。
 
@@ -32,7 +34,7 @@
 
 ### 当前性能基线
 
-- **当前 v0.6.10 已验收发布 / 9 页 63 样本全成功 / 冷 p95 957.171ms / 热 906.960ms / 本版远端 CI 按准确提交另行核验**
+- **当前 v0.6.11 已验收发布 / 账号级研究工作区 / 本版远端 CI 按准确提交另行核验**
 - **目录 data_version 精确 SHA-256 / PRAGMA data_version / 自身导入主动失效 / 外部连接触发重算**
 - **非阻塞本地快速路径 / 目录锁竞争回退 / 缓存锁竞争回退 / 未命中回退 / 远程目录回退**
 - **版本键仍逐次核对 / 权限先于缓存 / 不缓存账号裁剪结果 / miss 只计一次**
@@ -45,6 +47,8 @@
 - **未命中回填 p95 1.244ms / HTTP 单长连接参考 p95 3.292ms / 11 项检查通过**
 - **报告绑定生产源码与基准脚本 SHA-256 / 只读 API / 缺失 404 / 过期 409**
 - **v0.6.10 已验收发布 / 9 页 63 样本全成功 / 冷 p95 957.171ms / 热 906.960ms**
+- **v0.6.11 已验收发布 / 账号级研究工作区 / 后端 302 项 80.81% / 前端 71 项 / 扩展 E2E 通过**
+- **当前源码页面复测 63/63 / 冷 p95 956.299ms / 热 900.817ms / 不是加速证据**
 - **Slow 4G p95 25,266.879ms / 仅参考 / 桌面本机合成环境不等于生产或公网**
 
 ### 验收与 Git

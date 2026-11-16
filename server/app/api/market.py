@@ -2,20 +2,77 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query as QueryParam, Request
 
-from app.api.contracts import RuleRequest
+from app.api.contracts import ResearchWorkspaceRequest, RuleRequest
 from app.api.dependencies import current_service
 from app.core.auth import auth_enabled, auth_store, has_full_scope, require_scope
 
 router = APIRouter(tags=["market"])
 
 
-@router.get("/api/assets")
-async def assets(request: Request):
+def allowed_assets(request: Request) -> list[dict]:
     principal = getattr(request.state, "principal", None)
     values = current_service(request).assets()
     if principal is None or "*" in principal.assets:
         return values
     return [item for item in values if item["code"] in principal.assets]
+
+
+def workspace_response(record: dict | None, assets: list[dict]) -> dict:
+    payload = record["payload"] if record and isinstance(record.get("payload"), dict) else {}
+    codes = [item["code"] for item in assets]
+    allowed = set(codes)
+    watchlist = payload.get("watchlist", [])
+    if not isinstance(watchlist, list):
+        watchlist = []
+    selected = payload.get("selected_asset", "")
+    if not isinstance(selected, str) or selected not in allowed:
+        selected = "SPX.GI" if "SPX.GI" in allowed else (codes[0] if codes else "")
+    categories = {item.get("category") for item in assets}
+    category = payload.get("category", "all")
+    if not isinstance(category, str) or (category != "all" and category not in categories):
+        category = "all"
+    search = payload.get("search", "")
+    visible_range = payload.get("visible_range", 500)
+    return {
+        "workspace_version": "market-workspace-v1",
+        "search": search if isinstance(search, str) else "",
+        "category": category,
+        "watchlist_only": payload.get("watchlist_only") is True,
+        "watchlist": [code for code in dict.fromkeys(watchlist) if isinstance(code, str) and code in allowed],
+        "selected_asset": selected,
+        "visible_range": visible_range if visible_range in {60, 250, 500} else 500,
+        "revision": record["revision"] if record else 0,
+        "updated_at": record["updated_at"] if record else None,
+    }
+
+
+def workspace_username(request: Request) -> str:
+    principal = getattr(request.state, "principal", None)
+    return principal.username if principal else "local-dev"
+
+
+@router.get("/api/research/workspace")
+def research_workspace(request: Request):
+    assets = allowed_assets(request)
+    return workspace_response(auth_store().research_workspace(workspace_username(request)), assets)
+
+
+@router.put("/api/research/workspace")
+def save_research_workspace(payload: ResearchWorkspaceRequest, request: Request):
+    assets = allowed_assets(request)
+    allowed = {item["code"] for item in assets}
+    requested = set(payload.watchlist) | ({payload.selected_asset} if payload.selected_asset else set())
+    if not requested <= allowed:
+        raise HTTPException(422, "工作区包含不存在或当前账号不可用的资产")
+    canonical = payload.model_dump()
+    canonical["watchlist"] = list(dict.fromkeys(canonical["watchlist"]))
+    record = auth_store().save_research_workspace(workspace_username(request), canonical)
+    return workspace_response(record, assets)
+
+
+@router.get("/api/assets")
+async def assets(request: Request):
+    return allowed_assets(request)
 
 
 @router.get("/api/assets/{code}/series")

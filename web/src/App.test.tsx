@@ -10,6 +10,7 @@ const socialRecord = { source_id: 'source', source_path: '科技.csv', kind: 'so
 const responses: Record<string, unknown> = {
   '/api/home/summary': { latest, alert_count: 0, loaded_assets: 39, total_rows: 314318, state_count: 3340 },
   '/api/assets': [{ code: 'SPX.GI', name: '标普500', category: '全球权益', field: 'close', start: '1970-01-02', end: '2026-04-30', rows: 100 }],
+  '/api/research/workspace': { workspace_version: 'market-workspace-v1', search: '', category: 'all', watchlist_only: false, watchlist: [], selected_asset: 'SPX.GI', visible_range: 500, revision: 0, updated_at: null },
   '/api/regimes/latest': latest,
   '/api/features/latest': latest,
   '/api/regimes?limit=2000': [latest],

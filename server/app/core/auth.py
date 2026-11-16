@@ -69,6 +69,10 @@ class AuthStore:
                 CREATE TABLE IF NOT EXISTS auth_users (username TEXT PRIMARY KEY, password TEXT NOT NULL, role TEXT NOT NULL, domains TEXT NOT NULL, enabled INTEGER NOT NULL, version INTEGER NOT NULL, scopes TEXT NOT NULL DEFAULT '{"assets":["*"],"sources":["*"]}');
                 CREATE TABLE IF NOT EXISTS auth_sessions (id TEXT PRIMARY KEY, username TEXT NOT NULL, expires INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS auth_attempts (id TEXT PRIMARY KEY, count INTEGER NOT NULL, until INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS research_workspaces (
+                    username TEXT PRIMARY KEY, payload_json TEXT NOT NULL,
+                    revision INTEGER NOT NULL, updated_at INTEGER NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS auth_audit (id INTEGER PRIMARY KEY, occurred INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS auth_audit_archives (
                     id TEXT PRIMARY KEY, first_id INTEGER NOT NULL, last_id INTEGER NOT NULL,
@@ -261,6 +265,25 @@ class AuthStore:
         with self.connect() as db:
             return [{"username": row["username"], "role": row["role"], "domains": json.loads(row["domains"]), **json.loads(row["scopes"]), "enabled": bool(row["enabled"])} for row in db.execute("SELECT * FROM auth_users ORDER BY username")]
 
+    def research_workspace(self, username: str) -> dict[str, Any] | None:
+        with self.connect() as db:
+            row = db.execute("SELECT payload_json,revision,updated_at FROM research_workspaces WHERE username=?", (username,)).fetchone()
+        if row is None:
+            return None
+        return {"payload": json.loads(row["payload_json"]), "revision": row["revision"], "updated_at": row["updated_at"]}
+
+    def save_research_workspace(self, username: str, payload: dict[str, Any]) -> dict[str, Any]:
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        now = int(time.time())
+        with self.connect() as db:
+            db.execute("""
+                INSERT INTO research_workspaces(username,payload_json,revision,updated_at) VALUES(?,?,1,?)
+                ON CONFLICT(username) DO UPDATE SET payload_json=excluded.payload_json,
+                    revision=research_workspaces.revision+1,updated_at=excluded.updated_at
+            """, (username, serialized, now))
+            row = db.execute("SELECT payload_json,revision,updated_at FROM research_workspaces WHERE username=?", (username,)).fetchone()
+        return {"payload": json.loads(row["payload_json"]), "revision": row["revision"], "updated_at": row["updated_at"]}
+
     def save_user(self, actor, username, password, role, domains, enabled, assets=None, sources=None, create=False):
         self.validate_user(username, password, role, domains)
         hashed = password_hash(password) if password else None
@@ -345,6 +368,13 @@ def authorize(principal: Principal, path: str, method: str):
     if path.startswith("/api/internal/"):
         if not principal.service or principal.username != "alert" or path != "/api/internal/alert-states":
             raise HTTPException(403, "此接口仅供指定内部服务使用")
+        return
+    if path == "/api/research/workspace":
+        if principal.service:
+            raise HTTPException(403, "研究工作区仅面向登录用户")
+        require_domain(principal, "market")
+        if method not in {"GET", "HEAD", "PUT"}:
+            raise HTTPException(403, "当前方法不能修改研究工作区")
         return
     if path.startswith(("/api/auth/users", "/api/auth/audit", "/api/system/")):
         if principal.role != "admin" and not principal.service:

@@ -257,7 +257,14 @@ svg { flex-shrink: 0; }
 .asset-browser .panel-body { padding: 9px; }
 .asset-controls { display: grid; gap: 6px; margin-bottom: 8px; }
 .asset-controls input, .asset-controls select { width: 100%; }
+.workspace-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 6px; }
+.workspace-actions button { justify-content: center; min-width: 0; padding: 5px 4px; font-size: 8px; white-space: nowrap; }
+.workspace-status { min-height: 25px; margin: 0 0 7px; color: var(--muted); font-size: 8px; line-height: 1.55; }
 .asset-list { max-height: 337px; overflow-y: auto; border-top: 1px solid #eceff2; }
+.asset-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px; border-bottom: 1px solid #eef0f2; }
+.asset-row .asset-item { border-bottom: 0; }
+.watch-toggle { justify-content: center; width: 28px; padding: 0; border: 0; border-left: 1px solid #f0f1f3; border-radius: 0; background: transparent; color: #a1a7ae; font-size: 14px; }
+.watch-toggle:hover:not(:disabled), .watch-toggle.active { background: #fcf5f5; color: var(--accent); }
 .asset-item { justify-content: space-between; width: 100%; padding: 8px 6px; border: 0; border-bottom: 1px solid #eef0f2; border-radius: 0; background: transparent; text-align: left; }
 .asset-item > span { min-width: 0; }
 .asset-item strong { display: block; overflow: hidden; color: #39414b; font-size: 11px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }

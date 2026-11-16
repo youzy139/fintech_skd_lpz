@@ -90,6 +90,20 @@ def test_remote_mode_proxies_market_and_replay_contracts(monkeypatch):
     assert json.loads(post_request.data)["end_date"] == "2024-01-02"
 
 
+def test_remote_mode_proxies_research_workspace_writes(monkeypatch):
+    def open_response(request, timeout):
+        assert request.full_url == "http://feature-service:8000/api/research/workspace"
+        assert request.get_method() == "PUT"
+        assert json.loads(request.data)["selected_asset"] == "TEST"
+        return FakeResponse({"workspace_version": "market-workspace-v1", "selected_asset": "TEST", "watchlist": ["TEST"], "revision": 1})
+
+    with remote_client(monkeypatch, open_response) as http:
+        response = http.put("/api/research/workspace", json={"search": "", "category": "all", "watchlist_only": True, "watchlist": ["TEST"], "selected_asset": "TEST", "visible_range": 60}, headers={"X-Request-ID": "trace.workspace-proxy"})
+        assert response.status_code == 200
+        assert response.json()["revision"] == 1
+        assert response.headers["x-request-id"] == "trace.workspace-proxy"
+
+
 def test_remote_mode_preserves_upstream_errors_and_graphql(monkeypatch):
     def open_response(request, timeout):
         payload = json.dumps({"detail": "会话不存在", "error": {"code": "not_found", "request_id": "trace.feature-2"}}).encode("utf-8")

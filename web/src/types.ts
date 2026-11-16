@@ -1,5 +1,16 @@
 export type Asset = { code: string; name: string; category: string; field: string; start: string; end: string; rows: number }
 export type AssetSeries = { code: string; name: string; field: string; unit: string; points: { date: string; value: number }[] }
+export type ResearchWorkspace = {
+  workspace_version: 'market-workspace-v1'
+  search: string
+  category: string
+  watchlist_only: boolean
+  watchlist: string[]
+  selected_asset: string
+  visible_range: 60 | 250 | 500
+  revision: number
+  updated_at: number | null
+}
 export type Contribution = { feature: string; value: number | null; standardized: number | null }
 export type FeatureDefinition = { name: string; title: string; unit: string; window: number; minimum_observations: number; formula: string; model_input: boolean }
 export type FeatureContract = { schema_version: number; algorithm: string; feature_version: string; analysis_start: string; input: string; time_basis: string; visibility: string; missing_policy: string; features: FeatureDefinition[] }

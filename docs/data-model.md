@@ -8,6 +8,8 @@
 
 `v0.6.10` 新增真实 Chrome 页面性能 JSON，位于 Git 忽略的基准目录，以页面、接口和基准源码 SHA-256 绑定；只读 API 不执行压测，报告不形成业务事实源，也不改变 SQL 实体或回放结果。已获固定网站验收并发布，详见 [专项](v0.6.10-page-performance.md)。
 
+`v0.6.11` 在身份 SQLite 增加 `research_workspaces`，按用户名保存市场筛选、观察列表、选中资产和走势范围；它不是行情或模型事实源，不改变 `auth_users`、会话、资产、状态、预警或回放结果。保存和读取均应用当前资产权限，已获固定网站验收并发布，详见 [专项](v0.6.11-research-workspace.md)。
+
 `v0.6.7` 在性能 JSON 中增加可选基线对照及双方运行源码摘要，仍不新增 SQL 实体或第二份模型事实。
 
 `v0.6.9` 新增 Redis 热特征性能 JSON，位于 Git 忽略的基准目录，以生产源码和基准脚本 SHA-256 绑定；只读 API 不执行压测，报告不成为特征事实源，也不改变缓存键、快照、SQL 实体或回放结果。已获固定网站验收并发布，详见 [专项](v0.6.9-redis-feature-performance.md)。
@@ -91,6 +93,12 @@ erDiagram
     string role
     string domains
     int version
+  }
+  research_workspaces {
+    string username PK
+    json payload_json
+    int revision
+    int updated_at
   }
   alert_rule_versions {
     string version PK

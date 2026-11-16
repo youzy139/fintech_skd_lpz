@@ -11,6 +11,7 @@ const paths: Record<string, string> = {
   system: 'M4 4h16v12H4Zm4 16h8m-4-4v4M7 8h2m2 0h6M7 12h6',
   arrow: 'M4 12h16m-6-6 6 6-6 6',
   download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
+  save: 'M5 3h12l2 2v16H5ZM8 3v6h8V3M8 21v-7h8v7',
   refresh: 'M20 7v5h-5M4 17v-5h5m-5 0a8 8 0 0 1 14-6m2 6a8 8 0 0 1-14 6',
   menu: 'M3 6h18M3 12h18M3 18h18',
   close: 'm5 5 14 14M19 5 5 19',
