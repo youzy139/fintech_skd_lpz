@@ -5,9 +5,11 @@
 ## 1. 可直接复制给接手模型
 
 ```text
-你正在接手 MarketLens（2026 年上海科技大学金融科技竞赛）。先读 AGENTS.md、CLAUDE.md、README.md、docs/roadmap.md、docs/release-readiness.md、docs/v0.6.8-api-fast-path-performance.md，再运行 git status、git log 和 scripts/check_versions.py 核对实际状态。
+你正在接手 MarketLens（2026 年上海科技大学金融科技竞赛）。先读 AGENTS.md、CLAUDE.md、README.md、docs/roadmap.md、docs/release-readiness.md、docs/v0.6.9-redis-feature-performance.md，再运行 git status、git log 和 scripts/check_versions.py 核对实际状态。
 
-当前基线是 v0.6.8；允许同版本追加提交，既有标签不移动。目录快速路径和统一 40 线程后，五类服务端路由 p95 约 33ms，但客户端新连接 p95 370.721ms、长连接 340.145ms，整体 API <50ms 仍未通过。不要把服务端分段、局部微基准或最后一轮热结果当成整体达标。
+当前基线是 v0.6.9；Redis 热特征批次已获固定网站验收并发布，准确提交的远端 CI 须单独核验。真实 Redis 8.0.5、合成三资产的 1,000 次生产服务有效命中 p95 0.795ms，本范围通过暂定 <10ms；11 项行为检查通过。先读 docs/v0.6.9-redis-feature-performance.md；不得外推为多节点、真实行情或正式容量验收。
+
+此前 v0.6.8 目录快速路径和统一 40 线程后，五类服务端路由 p95 约 33ms，但客户端新连接 p95 370.721ms、长连接 340.145ms，整体 API <50ms 仍未通过。不要把服务端分段、局部微基准或最后一轮热结果当成整体达标。
 
 继续关闭真实强制缺口，不编造验收、金融效果、团队信息、事件标注或用户反馈。原始赛题数据只读；模型计算特征/状态，确定性规则生成预警，LLM 不参与状态、等级或回放结果。历史回放不是实时流。
 
@@ -28,7 +30,7 @@
 
 ### 当前性能基线
 
-- **v0.6.8 同版本追加 / 既有标签不移动 / 不创建 v0.6.9**
+- **当前 v0.6.9 已验收发布 / v0.6.8 既有标签未移动 / 准确提交 CI 待核验**
 - **目录 data_version 精确 SHA-256 / PRAGMA data_version / 自身导入主动失效 / 外部连接触发重算**
 - **非阻塞本地快速路径 / 目录锁竞争回退 / 缓存锁竞争回退 / 未命中回退 / 远程目录回退**
 - **版本键仍逐次核对 / 权限先于缓存 / 不缓存账号裁剪结果 / miss 只计一次**
@@ -37,6 +39,9 @@
 - **新连接 p95 423.317→370.721ms / 长连接 338.736→340.145ms / 后者上升**
 - **长连接首轮 p95 450.194ms / 冷轮次不排除 / 全部 1,010 请求成功**
 - **真实目录微基准平均减少 99.658% / 仅 SQLite 查询 / 不是 HTTP 提升**
+- **v0.6.9 已验收发布 / Redis 有效命中 1,000 样本 p95 0.795ms / 合成单节点范围通过**
+- **未命中回填 p95 1.244ms / HTTP 单长连接参考 p95 3.292ms / 11 项检查通过**
+- **报告绑定生产源码与基准脚本 SHA-256 / 只读 API / 缺失 404 / 过期 409**
 
 ### 验收与 Git
 
@@ -62,7 +67,7 @@
 ### 下阶段强制缺口
 
 - **API 客户端冷轮次与 p95 / 混合读写 / 持续吞吐 / 端到端 / 资源和故障矩阵**
-- **Redis 热特征 <10ms / 真实 Redis、多实例、权限和故障复验 / 不用合成验证代替正式性能**
+- **Redis 热特征 <10ms / 合成单 Redis 已测并通过 / 真实行情、多进程、多节点、Nginx 和完整故障矩阵仍待复验**
 - **页面冷/热加载 / 慢网络 / Nginx、多进程和跨实例**
 - **干净源码与空卷 Compose / 升级回退 / Savepoint / 候选部署**
 - **真实金融事件标注、独立复核、episode 回测和误报报告 / 不得自动生成标注**
@@ -85,6 +90,9 @@ PYTHONUTF8=1 conda run -n fintech python server/benchmarks/independent_user_perf
 
 # 真实目录只读微基准
 MARKETLENS_CONFIG="C:/Users/15214/Desktop/project/fintech/server/config.example.json" PYTHONPATH=. PYTHONUTF8=1 conda run -n fintech python server/benchmarks/catalog_version_performance.py
+
+# 隔离真实 Redis 热特征基准（先准备 Redis 16379 并释放 18000）
+PYTHONUTF8=1 conda run -n fintech python server/benchmarks/feature_cache_performance.py --output server/data/benchmarks/feature-cache-performance.json
 
 # 版本与暂存范围
 python scripts/check_versions.py

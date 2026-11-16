@@ -10,6 +10,7 @@ from app.services.catalog_factory import create_catalog_reader
 from app.services.context_evidence import attach_context
 from app.services.cache import RedisJsonCache
 from app.services.feature_cache import FeatureSnapshotCache
+from app.services.feature_cache_performance import load_feature_cache_performance_report
 from app.services.storage import SnapshotStore
 from app.services.model_performance import load_performance_report
 from app.services.stability import load_stability_report
@@ -124,6 +125,9 @@ class MarketService:
         if not self._feature_metadata:
             raise RuntimeError("特征元数据尚未初始化")
         return load_performance_report(self.config.database_path, self._feature_metadata)
+
+    def feature_cache_performance(self) -> dict[str, Any]:
+        return load_feature_cache_performance_report(self.config.database_path)
 
     def feature_cache_status(self) -> dict[str, Any]:
         if self._feature_snapshot is None:

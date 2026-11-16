@@ -55,6 +55,19 @@ def feature_cache(request: Request):
     return current_service(request).feature_cache_status()
 
 
+@router.get("/api/system/feature-cache-performance")
+async def feature_cache_performance(request: Request):
+    config = load_config()
+    if config.feature_service["url"]:
+        return await forward_feature_request(request, config.feature_service["url"], float(config.feature_service["timeout_seconds"]))
+    try:
+        return current_service(request).feature_cache_performance()
+    except FileNotFoundError as error:
+        raise HTTPException(404, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
+
+
 @router.get("/api/system/computation-performance")
 async def computation_performance(request: Request):
     config = load_config()

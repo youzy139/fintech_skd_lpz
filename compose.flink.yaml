@@ -2,7 +2,7 @@ x-flink-image: &flink-image
   build:
     context: .
     dockerfile: flink/Dockerfile
-  image: marketlens-flink:0.6.8
+  image: marketlens-flink:0.6.9
   networks: [marketlens]
 
 services:

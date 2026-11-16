@@ -11,6 +11,7 @@ function mockDependencies(payload: unknown = report) {
   return vi.fn((path: RequestInfo | URL) => {
     const target = String(path)
     if (target.includes('computation-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '尚未生成单日计算性能报告，请先运行只读基准脚本' }) })
+    if (target.includes('feature-cache-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '尚未生成 Redis 热特征性能报告，请先运行隔离真实 Redis 基准脚本' }) })
     if (target.includes('api-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '尚未生成独立用户 API 性能报告，请先运行隔离基准脚本' }) })
     return Promise.resolve({ ok: true, json: async () => payload })
   })
@@ -26,7 +27,7 @@ it('shows real dependency and circuit states and supports a new probe', async ()
   expect(screen.getByText('ConnectionError')).toBeInTheDocument()
   expect(screen.getByText('未启用')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '重新探测' }))
-  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(6))
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(8))
 })
 
 it('shows monitoring failures without inventing healthy dependencies', async () => {
@@ -70,6 +71,7 @@ it('shows missing computation reports without a pass conclusion', async () => {
   render(<SystemStatus />)
   expect(await screen.findByText('尚未生成单日计算性能报告，请先运行只读基准脚本')).toBeInTheDocument()
   expect(await screen.findByText('尚未生成独立用户 API 性能报告，请先运行隔离基准脚本')).toBeInTheDocument()
+  expect(await screen.findByText('尚未生成 Redis 热特征性能报告，请先运行隔离真实 Redis 基准脚本')).toBeInTheDocument()
   expect(screen.queryByText('通过暂定目标')).not.toBeInTheDocument()
 })
 
@@ -92,6 +94,7 @@ it('shows sample counts, measured thresholds and empty groups separately', async
   vi.stubGlobal('fetch', vi.fn((path: RequestInfo | URL) => {
     const target = String(path)
     if (target.includes('computation-performance')) return Promise.resolve({ ok: true, json: async () => performance })
+    if (target.includes('feature-cache-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '缺失' }) })
     if (target.includes('api-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '尚未生成独立用户 API 性能报告' }) })
     return Promise.resolve({ ok: true, json: async () => report })
   }))
@@ -140,6 +143,7 @@ it('shows independent API samples, cold rounds and honest baseline changes', asy
   vi.stubGlobal('fetch', vi.fn((path: RequestInfo | URL) => {
     const target = String(path)
     if (target.includes('api-performance')) return Promise.resolve({ ok: true, json: async () => apiReport })
+    if (target.includes('feature-cache-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '缺失' }) })
     if (target.includes('computation-performance')) return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: '缺失' }) })
     return Promise.resolve({ ok: true, json: async () => report })
   }))

@@ -25,6 +25,7 @@ def fake_service():
         latest_features=lambda: {name: state[name] for name in ("date", "features", "contributions", "model_version")},
         stability_evaluation=lambda: {"report_type": "regime_stability", "evaluation_version": "stability-v1", "runs": []},
         computation_performance=lambda: {"report_type": "model_computation_performance", "performance_version": "model-computation-performance-v1", "summary": {}},
+        feature_cache_performance=lambda: {"report_type": "redis_feature_cache_performance", "performance_version": "redis-feature-cache-performance-v1", "measurement": {}},
         research_case=lambda: {"case_version": "research-case-v1", "case_id": "case-test", "is_financial_event_label": False},
         feature_cache_status=lambda: {"enabled": False, "view": "current-market"},
         home_summary=lambda: {"latest": state, "alert_count": 1, "loaded_assets": 1, "total_rows": 2, "state_count": 1},
