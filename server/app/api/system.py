@@ -12,6 +12,7 @@ from app.core.config import load_config
 from app.services.api_performance import load_api_performance_report
 from app.services.dependencies import DependencyMonitor
 from app.services.feature_proxy import forward_feature_request
+from app.services.page_performance import load_page_performance_report
 
 router = APIRouter(tags=["system"])
 
@@ -85,6 +86,16 @@ async def computation_performance(request: Request):
 def api_performance():
     try:
         return load_api_performance_report(load_config().database_path)
+    except FileNotFoundError as error:
+        raise HTTPException(404, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
+
+
+@router.get("/api/system/page-performance")
+def page_performance():
+    try:
+        return load_page_performance_report(load_config().database_path)
     except FileNotFoundError as error:
         raise HTTPException(404, str(error)) from None
     except ValueError as error:

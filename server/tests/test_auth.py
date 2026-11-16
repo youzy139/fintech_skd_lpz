@@ -85,7 +85,7 @@ def test_csrf_and_login_throttle(secured):
     assert int(limited.headers["Retry-After"]) > 0
 
 
-def test_roles_data_scopes_and_graphql_aliases(secured):
+def test_roles_data_scopes_and_graphql_aliases(secured, monkeypatch):
     client, store, code = secured
     bootstrap(client, code)
     observer = bearer(create_user(store))
@@ -102,9 +102,12 @@ def test_roles_data_scopes_and_graphql_aliases(secured):
     assert client.get("/api/system/feature-cache", headers=observer).status_code == 403
     assert client.get("/api/system/computation-performance", headers=observer).status_code == 403
     assert client.get("/api/system/feature-cache-performance", headers=observer).status_code == 403
+    assert client.get("/api/system/page-performance", headers=observer).status_code == 403
     assert client.get("/api/system/feature-cache").status_code == 200
     assert client.get("/api/system/computation-performance").status_code == 200
     assert client.get("/api/system/feature-cache-performance").status_code == 200
+    monkeypatch.setattr("app.api.system.load_page_performance_report", lambda _: (_ for _ in ()).throw(FileNotFoundError("尚未生成页面加载性能报告")))
+    assert client.get("/api/system/page-performance").status_code == 404
     assert client.put("/api/alert-rules", json={}, headers=observer).status_code == 403
     market = bearer(create_user(store, "market-user", domains=("market",)))
     assert client.get("/api/data/records", headers=market).status_code == 403

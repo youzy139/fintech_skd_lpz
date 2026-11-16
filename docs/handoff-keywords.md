@@ -5,9 +5,11 @@
 ## 1. 可直接复制给接手模型
 
 ```text
-你正在接手 MarketLens（2026 年上海科技大学金融科技竞赛）。先读 AGENTS.md、CLAUDE.md、README.md、docs/roadmap.md、docs/release-readiness.md、docs/v0.6.9-redis-feature-performance.md，再运行 git status、git log 和 scripts/check_versions.py 核对实际状态。
+你正在接手 MarketLens（2026 年上海科技大学金融科技竞赛）。先读 AGENTS.md、CLAUDE.md、README.md、docs/roadmap.md、docs/release-readiness.md、docs/v0.6.10-page-performance.md、docs/v0.6.9-redis-feature-performance.md，再运行 git status、git log 和 scripts/check_versions.py 核对实际状态。
 
-当前基线是 v0.6.9；Redis 热特征批次已获固定网站验收并发布，准确提交的远端 CI 须单独核验。真实 Redis 8.0.5、合成三资产的 1,000 次生产服务有效命中 p95 0.795ms，本范围通过暂定 <10ms；11 项行为检查通过。先读 docs/v0.6.9-redis-feature-performance.md；不得外推为多节点、真实行情或正式容量验收。
+当前基线是 v0.6.10；页面性能批次已获固定网站验收并发布。9 个主要页面最终 63/63 样本成功，冷加载整体 p95 957.171ms、热 reload 906.960ms，本范围均通过暂定 <2s；Slow 4G p95 25,266.879ms，仅作参考。先读 docs/v0.6.10-page-performance.md，不得外推为生产构建、公网或全设备性能；本版远端 CI 按准确提交另行核验。
+
+此前 v0.6.9 Redis 热特征批次已获固定网站验收并发布，准确提交 `b5409c95c06f8aeda7703343ba8a94603dd889cd` 的五项远端 CI 均已核验成功，运行 `43843436568`。真实 Redis 8.0.5、合成三资产的 1,000 次生产服务有效命中 p95 0.795ms，本范围通过暂定 <10ms；11 项行为检查通过。先读 docs/v0.6.9-redis-feature-performance.md；不得外推为多节点、真实行情或正式容量验收。
 
 此前 v0.6.8 目录快速路径和统一 40 线程后，五类服务端路由 p95 约 33ms，但客户端新连接 p95 370.721ms、长连接 340.145ms，整体 API <50ms 仍未通过。不要把服务端分段、局部微基准或最后一轮热结果当成整体达标。
 
@@ -30,7 +32,7 @@
 
 ### 当前性能基线
 
-- **当前 v0.6.9 已验收发布 / v0.6.8 既有标签未移动 / 准确提交 CI 待核验**
+- **当前 v0.6.10 已验收发布 / 9 页 63 样本全成功 / 冷 p95 957.171ms / 热 906.960ms / 本版远端 CI 按准确提交另行核验**
 - **目录 data_version 精确 SHA-256 / PRAGMA data_version / 自身导入主动失效 / 外部连接触发重算**
 - **非阻塞本地快速路径 / 目录锁竞争回退 / 缓存锁竞争回退 / 未命中回退 / 远程目录回退**
 - **版本键仍逐次核对 / 权限先于缓存 / 不缓存账号裁剪结果 / miss 只计一次**
@@ -42,6 +44,8 @@
 - **v0.6.9 已验收发布 / Redis 有效命中 1,000 样本 p95 0.795ms / 合成单节点范围通过**
 - **未命中回填 p95 1.244ms / HTTP 单长连接参考 p95 3.292ms / 11 项检查通过**
 - **报告绑定生产源码与基准脚本 SHA-256 / 只读 API / 缺失 404 / 过期 409**
+- **v0.6.10 已验收发布 / 9 页 63 样本全成功 / 冷 p95 957.171ms / 热 906.960ms**
+- **Slow 4G p95 25,266.879ms / 仅参考 / 桌面本机合成环境不等于生产或公网**
 
 ### 验收与 Git
 
@@ -68,7 +72,7 @@
 
 - **API 客户端冷轮次与 p95 / 混合读写 / 持续吞吐 / 端到端 / 资源和故障矩阵**
 - **Redis 热特征 <10ms / 合成单 Redis 已测并通过 / 真实行情、多进程、多节点、Nginx 和完整故障矩阵仍待复验**
-- **页面冷/热加载 / 慢网络 / Nginx、多进程和跨实例**
+- **页面冷/热本机合成已测 / 生产构建、真实目录、移动端、慢 CPU、Nginx 和公网仍待复验**
 - **干净源码与空卷 Compose / 升级回退 / Savepoint / 候选部署**
 - **真实金融事件标注、独立复核、episode 回测和误报报告 / 不得自动生成标注**
 - **生命周期执行、全量来源质量、文本发布时间核实 / 未核实文本不得进入核心判断**
@@ -93,6 +97,9 @@ MARKETLENS_CONFIG="C:/Users/15214/Desktop/project/fintech/server/config.example.
 
 # 隔离真实 Redis 热特征基准（先准备 Redis 16379 并释放 18000）
 PYTHONUTF8=1 conda run -n fintech python server/benchmarks/feature_cache_performance.py --output server/data/benchmarks/feature-cache-performance.json
+
+# 真实 Chrome 页面性能（先停止所属 5174/18000 预览）
+PYTHONUTF8=1 conda run -n fintech python server/benchmarks/page_performance.py --output server/data/benchmarks/page-performance.json
 
 # 版本与暂存范围
 python scripts/check_versions.py

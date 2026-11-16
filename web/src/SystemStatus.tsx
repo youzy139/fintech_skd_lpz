@@ -3,6 +3,7 @@ import { api } from './api'
 import { ApiPerformancePanel, type ApiPerformanceReport } from './ApiPerformancePanel'
 import { ComputationPerformancePanel, type ComputationPerformanceReport } from './ComputationPerformancePanel'
 import { FeatureCachePerformancePanel, type FeatureCachePerformanceReport } from './FeatureCachePerformancePanel'
+import { PagePerformancePanel, type PagePerformanceReport } from './PagePerformancePanel'
 import { ErrorMessage, Metric, Panel } from './ui'
 
 type Check = { name: string; status: 'ok' | 'disabled' | 'unavailable'; latency_ms: number | null; probe?: string; error_type?: string }
@@ -25,6 +26,8 @@ export function SystemStatus() {
   const [performanceError, setPerformanceError] = useState('')
   const [featurePerformance, setFeaturePerformance] = useState<FeatureCachePerformanceReport | null>(null)
   const [featurePerformanceError, setFeaturePerformanceError] = useState('')
+  const [pagePerformance, setPagePerformance] = useState<PagePerformanceReport | null>(null)
+  const [pagePerformanceError, setPagePerformanceError] = useState('')
   const load = useCallback(async (signal?: AbortSignal) => {
     setBusy(true); setError('')
     try {
@@ -43,6 +46,10 @@ export function SystemStatus() {
       setFeaturePerformanceError('')
       try { setFeaturePerformance(await api<FeatureCachePerformanceReport>('/api/system/feature-cache-performance', signal)) }
       catch (reason) { if (!signal?.aborted) setFeaturePerformanceError(reason instanceof Error ? reason.message : 'Redis 热特征性能报告不可用') }
+      setPagePerformance(null)
+      setPagePerformanceError('')
+      try { setPagePerformance(await api<PagePerformanceReport>('/api/system/page-performance', signal)) }
+      catch (reason) { if (!signal?.aborted) setPagePerformanceError(reason instanceof Error ? reason.message : '页面加载性能报告不可用') }
     }
     catch (reason) { if (!signal?.aborted) setError(reason instanceof Error ? reason.message : '无法加载依赖状态') }
     finally { if (!signal?.aborted) setBusy(false) }
@@ -59,6 +66,7 @@ export function SystemStatus() {
       <FeatureCachePerformancePanel report={featurePerformance} error={featurePerformanceError} />
       <ApiPerformancePanel report={apiPerformance} error={apiPerformanceError} />
       <ComputationPerformancePanel report={performance} error={performanceError} />
+      <PagePerformancePanel report={pagePerformance} error={pagePerformanceError} />
       <p className="method-note">熔断打开时，普通读取使用受限本地降级；管理、回放控制和连接租约保持失败关闭。恢复探测成功后自动闭合，无需重启服务。</p>
     </>}
   </div>

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-MarketLens 是 2026 年上海科技大学金融科技竞赛项目：多资产行情 → 特征 → walk-forward 市场状态 → 确定性规则预警 → Web 展示/历史回放的监控与研究平台。当前源码与工件声明为 **v0.6.9 测试版**，不是 v1.0.0，也不是实时行情、高可用或可暴露公网的生产系统。项目约束、数据口径和验收规则的完整版本见 `AGENTS.md`，本文件是面向编码的补充摘要；两者冲突时以 `AGENTS.md` 为准。
+MarketLens 是 2026 年上海科技大学金融科技竞赛项目：多资产行情 → 特征 → walk-forward 市场状态 → 确定性规则预警 → Web 展示/历史回放的监控与研究平台。当前源码与工件声明为 **v0.6.10 测试版**，不是 v1.0.0，也不是实时行情、高可用或可暴露公网的生产系统。项目约束、数据口径和验收规则的完整版本见 `AGENTS.md`，本文件是面向编码的补充摘要；两者冲突时以 `AGENTS.md` 为准。
 
 核心红线：
 
@@ -51,6 +51,9 @@ PYTHONUTF8=1 conda run -n fintech python server/benchmarks/websocket_user_perfor
 
 # 隔离真实 Redis 热特征基准（Redis 默认 16379，HTTP 固定 18000，均先核实占用）
 PYTHONUTF8=1 conda run -n fintech python server/benchmarks/feature_cache_performance.py --output server/data/benchmarks/feature-cache-performance.json
+
+# 真实 Chrome 页面冷/热加载基准（前后端固定 5174/18000，先停止所属预览）
+PYTHONUTF8=1 conda run -n fintech python server/benchmarks/page_performance.py --output server/data/benchmarks/page-performance.json
 
 # 前端测试 / 构建
 cd web && npm test
