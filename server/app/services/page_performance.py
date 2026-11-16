@@ -25,6 +25,7 @@ SOURCE_FILES = (
     "web/src/Landing.tsx",
     "web/src/Workspace.tsx",
     "web/src/MarketOverview.tsx",
+    "web/src/researchLinks.ts",
     "web/src/RegimeAnalysis.tsx",
     "web/src/RegimeStability.tsx",
     "web/src/FeatureAnalysis.tsx",

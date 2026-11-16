@@ -116,12 +116,12 @@ def main() -> None:
         try:
             backend = subprocess.Popen(
                 [sys.executable, str(ROOT / "server/benchmarks/e2e_server.py")],
-                cwd=ROOT, env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                cwd=ROOT, env=environment,
             )
             wait_ready(backend, backend_url, args.ready_timeout)
             frontend = subprocess.Popen(
                 ["node", str(ROOT / "web/node_modules/vite/bin/vite.js"), str(ROOT / "web"), "--host", args.host, "--port", str(args.frontend_port), "--strictPort"],
-                cwd=ROOT, env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                cwd=ROOT, env=environment,
             )
             wait_frontend(frontend, frontend_url, 30)
             subprocess.run(

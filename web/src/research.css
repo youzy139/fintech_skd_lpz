@@ -259,6 +259,11 @@ svg { flex-shrink: 0; }
 .asset-controls input, .asset-controls select { width: 100%; }
 .workspace-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 6px; }
 .workspace-actions button { justify-content: center; min-width: 0; padding: 5px 4px; font-size: 8px; white-space: nowrap; }
+.workspace-actions .share-action { grid-column: 1 / -1; }
+.share-note { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 0 7px; color: #776542; font-size: 8px; line-height: 1.55; }
+.share-note .text-button { padding: 0; font-size: 8px; }
+.share-link { width: 100%; margin-bottom: 6px; background: #f7f8fa; color: #68727d; font-size: 8px; text-overflow: ellipsis; }
+.share-link:focus { background: #fff; }
 .workspace-status { min-height: 25px; margin: 0 0 7px; color: var(--muted); font-size: 8px; line-height: 1.55; }
 .asset-list { max-height: 337px; overflow-y: auto; border-top: 1px solid #eceff2; }
 .asset-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px; border-bottom: 1px solid #eef0f2; }

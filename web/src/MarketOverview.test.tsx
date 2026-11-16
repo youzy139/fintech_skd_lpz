@@ -18,6 +18,7 @@ const props = { assets, latest, alerts: [], loading: false, onRefresh: vi.fn(), 
 
 describe('MarketOverview asset browser', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '/#/overview')
     storedWorkspace = { ...defaultWorkspace, watchlist: [] }
     failSave = false
     vi.stubGlobal('fetch', vi.fn((path: string, init?: RequestInit) => {
@@ -55,7 +56,7 @@ describe('MarketOverview asset browser', () => {
     fireEvent.click(screen.getByRole('button', { name: '只看观察列表 · 1' }))
     fireEvent.click(screen.getByRole('button', { name: '60 日' }))
     await screen.findByTestId('chart')
-    fireEvent.click(screen.getByRole('button', { name: '保存工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存工作区', exact: true }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已保存'))
     const write = vi.mocked(fetch).mock.calls.find(([path, init]) => path === '/api/research/workspace' && (init as RequestInit | undefined)?.method === 'PUT')
     expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({ watchlist: ['BOND.YIELD'], watchlist_only: true, selected_asset: 'BOND.YIELD', visible_range: 60 })
@@ -69,17 +70,44 @@ describe('MarketOverview asset browser', () => {
     expect(await screen.findByTestId('chart')).toHaveAttribute('data-count', '60')
   })
 
+  it('opens a shared view without overwriting the saved workspace', async () => {
+    const first = render(<MarketOverview {...props} />)
+    await screen.findByTestId('chart')
+    fireEvent.click(screen.getByRole('button', { name: '将示例国债加入观察列表' }))
+    fireEvent.click(screen.getByRole('button', { name: '只看观察列表 · 1' }))
+    fireEvent.click(screen.getByRole('button', { name: '60 日' }))
+    await screen.findByTestId('chart')
+    fireEvent.click(screen.getByRole('button', { name: '复制研究链接' }))
+    const link = await screen.findByLabelText('研究链接')
+    expect((link as HTMLInputElement).value).toContain('share=market-workspace-v1')
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT')).toHaveLength(0)
+    first.unmount()
+    window.history.replaceState(null, '', (link as HTMLInputElement).value)
+    render(<MarketOverview {...props} />)
+    expect(await screen.findByText(/已打开分享视图/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('搜索资产')).toBeEnabled())
+    expect(screen.getByRole('button', { name: /示例国债 BOND.YIELD/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '60 日' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '保存工作区', exact: true })).toBeEnabled()
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT')).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: '恢复已保存工作区' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /标普500 SPX.GI/ })).toHaveAttribute('aria-pressed', 'true'))
+    expect(screen.getByRole('button', { name: '只看观察列表 · 0' })).toHaveAttribute('aria-pressed', 'false')
+    expect(window.location.hash).toBe('#/overview')
+    expect(storedWorkspace).toEqual(defaultWorkspace)
+  })
+
   it('keeps unsaved changes visible after a failure and retries explicitly', async () => {
     failSave = true
     render(<MarketOverview {...props} />)
     await screen.findByTestId('chart')
     fireEvent.click(screen.getByRole('button', { name: '将示例国债加入观察列表' }))
-    fireEvent.click(screen.getByRole('button', { name: '保存工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存工作区', exact: true }))
     expect(await screen.findByText('save offline')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('保存未完成')
-    expect(screen.getByRole('button', { name: '保存工作区' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '保存工作区', exact: true })).toBeEnabled()
     failSave = false
-    fireEvent.click(screen.getByRole('button', { name: '保存工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存工作区', exact: true }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已保存'))
     expect(storedWorkspace.watchlist).toEqual(['BOND.YIELD'])
   })

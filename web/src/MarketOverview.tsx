@@ -5,18 +5,22 @@ import { api } from './api'
 import { chartAxis, chartColors, chartGrid } from './chartTheme'
 import { directionTone, downloadCsv, numeric, percent } from './format'
 import { featureNames } from './labels'
+import { buildMarketWorkspaceLink, emptyMarketWorkspace, parseMarketWorkspaceLink, restrictSharedWorkspace, type MarketWorkspaceDraft } from './researchLinks'
 import { AlertList, ErrorMessage, Loading, Metric, Panel } from './ui'
 import type { Alert, Asset, AssetSeries, Regime, ResearchWorkspace } from './types'
 import type { Page } from './navigation'
 
-type WorkspaceDraft = Pick<ResearchWorkspace, 'search' | 'category' | 'watchlist_only' | 'watchlist' | 'selected_asset' | 'visible_range'>
-const emptyWorkspace = (): WorkspaceDraft => ({ search: '', category: 'all', watchlist_only: false, watchlist: [], selected_asset: 'SPX.GI', visible_range: 500 })
+type WorkspaceDraft = MarketWorkspaceDraft
 const draftOf = (result: ResearchWorkspace): WorkspaceDraft => ({ search: result.search, category: result.category, watchlist_only: result.watchlist_only, watchlist: result.watchlist, selected_asset: result.selected_asset, visible_range: result.visible_range })
 const sameWorkspace = (left: WorkspaceDraft, right: WorkspaceDraft) => JSON.stringify(left) === JSON.stringify(right)
 
 export default function MarketOverview({ assets, latest, alerts, loading, onRefresh, onNavigate }: { assets: Asset[]; latest: Regime; alerts: Alert[]; loading: boolean; onRefresh: () => void; onNavigate: (page: Page) => void }) {
-  const [workspace, setWorkspace] = useState<WorkspaceDraft>(emptyWorkspace)
+  const [workspace, setWorkspace] = useState<WorkspaceDraft>(emptyMarketWorkspace)
   const [savedWorkspace, setSavedWorkspace] = useState<WorkspaceDraft | null>(null)
+  const [shareViewActive, setShareViewActive] = useState(false)
+  const [shareNotice, setShareNotice] = useState('')
+  const [shareUrl, setShareUrl] = useState('')
+  const [shareMessage, setShareMessage] = useState('')
   const [workspaceStatus, setWorkspaceStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [workspaceError, setWorkspaceError] = useState('')
   const [workspaceAttempt, setWorkspaceAttempt] = useState(0)
@@ -30,18 +34,37 @@ export default function MarketOverview({ assets, latest, alerts, loading, onRefr
   const filteredAssets = useMemo(() => assets.filter(item => (!workspace.watchlist_only || workspace.watchlist.includes(item.code)) && (workspace.category === 'all' || item.category === workspace.category) && `${item.name} ${item.code}`.toLowerCase().includes(workspace.search.trim().toLowerCase())), [assets, workspace.category, workspace.search, workspace.watchlist, workspace.watchlist_only])
   const dirty = savedWorkspace !== null && !sameWorkspace(workspace, savedWorkspace)
 
+  function applySharedLink(): boolean {
+    const parsed = parseMarketWorkspaceLink(window.location.hash)
+    if (!parsed) return false
+    setSaveError('')
+    if (!parsed.workspace) { setShareNotice(parsed.error ?? '研究链接无效，已保留当前工作区'); return true }
+    const restricted = restrictSharedWorkspace(parsed.workspace, assets)
+    setWorkspace(restricted.workspace); setShareViewActive(true)
+    setShareNotice(restricted.pruned ? '已打开分享视图并按当前可用资产裁剪，尚未覆盖已保存工作区。' : '已打开分享视图，尚未覆盖已保存工作区。')
+    return true
+  }
+
   useEffect(() => {
     const controller = new AbortController()
     setWorkspaceStatus('loading'); setWorkspaceError(''); setSavedWorkspace(null)
     api<ResearchWorkspace>('/api/research/workspace', controller.signal).then(result => {
       if (controller.signal.aborted) return
       const draft = draftOf(result)
-      setWorkspace(draft); setSavedWorkspace(draft); setSavedAt(result.updated_at); setWorkspaceStatus('ready')
+      setSavedWorkspace(draft); setSavedAt(result.updated_at)
+      if (!applySharedLink()) { setWorkspace(draft); setShareViewActive(false); setShareNotice('') }
+      setWorkspaceStatus('ready')
     }).catch(reason => {
-      if (!controller.signal.aborted) { setWorkspaceError(reason instanceof Error ? reason.message : '研究工作区加载失败'); setWorkspaceStatus('error') }
+      if (!controller.signal.aborted) { applySharedLink(); setWorkspaceError(reason instanceof Error ? reason.message : '研究工作区加载失败'); setWorkspaceStatus('error') }
     })
     return () => controller.abort()
   }, [workspaceAttempt])
+
+  useEffect(() => {
+    const sync = () => { applySharedLink() }
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [assets])
 
   useEffect(() => {
     if (!filteredAssets.some(item => item.code === workspace.selected_asset)) updateWorkspace({ selected_asset: filteredAssets[0]?.code ?? '' })
@@ -78,9 +101,30 @@ export default function MarketOverview({ assets, latest, alerts, loading, onRefr
       const saved = draftOf(result)
       setSavedWorkspace(saved); setSavedAt(result.updated_at)
       setWorkspace(current => sameWorkspace(current, requested) ? saved : current)
+      setShareViewActive(false); setShareNotice('')
     } catch (reason) {
       setSaveError(reason instanceof Error ? reason.message : '研究工作区保存失败')
     } finally { setSaving(false) }
+  }
+
+  async function copyResearchLink() {
+    const link = buildMarketWorkspaceLink(workspace)
+    setShareUrl(link)
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+      await navigator.clipboard.writeText(link)
+      setShareMessage('研究链接已复制；接收者打开后需显式保存才会覆盖其工作区。')
+    } catch {
+      setShareMessage('链接已生成，请选中下方文本手动复制。')
+    }
+  }
+
+  function restoreSavedWorkspace() {
+    if (!savedWorkspace) return
+    setWorkspace(savedWorkspace); setShareViewActive(false); setShareNotice(''); setShareMessage('')
+    const url = new URL(window.location.href)
+    url.hash = '/overview'
+    window.history.replaceState(null, '', url.toString())
   }
 
   const selected = assets.find(item => item.code === workspace.selected_asset)
@@ -106,8 +150,12 @@ export default function MarketOverview({ assets, latest, alerts, loading, onRefr
         <div className="workspace-actions">
           <button className="quiet" aria-pressed={workspace.watchlist_only} disabled={workspaceStatus === 'loading'} onClick={() => updateWorkspace({ watchlist_only: !workspace.watchlist_only })}>{workspace.watchlist_only ? '查看全部资产' : '只看观察列表'} · {workspace.watchlist.length}</button>
           <button className="quiet" disabled={workspaceStatus !== 'ready' || saving || !dirty} onClick={() => void saveWorkspace()}><Icon name="save" />{saving ? '正在保存…' : '保存工作区'}</button>
+          <button className="quiet share-action" disabled={workspaceStatus === 'loading'} onClick={() => void copyResearchLink()}><Icon name="share" />复制研究链接</button>
         </div>
         <p className="workspace-status" role="status">{workspaceStatus === 'loading' ? '正在读取当前账号的研究工作区…' : workspaceStatus === 'error' ? '工作区未加载，当前修改仅保留在本页。' : saving ? '正在保存筛选、观察列表和走势范围…' : saveError ? '保存未完成，请处理后重试。' : dirty ? '有未保存的研究偏好。' : savedAt ? `已保存 · ${new Date(savedAt * 1000).toLocaleString('zh-CN')}` : '修改后可保存到当前账号。'}</p>
+        {shareNotice && <div className="share-note"><span>{shareNotice}</span>{shareViewActive && <button className="text-button" disabled={!savedWorkspace} onClick={restoreSavedWorkspace}>恢复已保存工作区</button>}</div>}
+        {shareUrl && <input className="share-link" aria-label="研究链接" readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} />}
+        {shareMessage && <p className="share-note">{shareMessage}</p>}
         {workspaceError && <ErrorMessage message={workspaceError} onRetry={() => setWorkspaceAttempt(value => value + 1)} retryLabel="重试工作区" />}
         {saveError && <div className="error" role="alert">{saveError}</div>}
         <div className="asset-controls"><input aria-label="搜索资产" placeholder="名称或代码" disabled={workspaceStatus === 'loading'} value={workspace.search} onChange={event => updateWorkspace({ search: event.target.value })} /><select aria-label="资产类别" disabled={workspaceStatus === 'loading'} value={workspace.category} onChange={event => updateWorkspace({ category: event.target.value })}><option value="all">全部类别</option>{[...new Set(assets.map(item => item.category))].map(category => <option key={category}>{category}</option>)}</select></div>
