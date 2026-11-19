@@ -1,13 +1,13 @@
 # MarketLens 项目接手关键词
 
-更新日期：2026-11-18。本文供下一位接手模型快速建立上下文，不能替代 `AGENTS.md`、`CLAUDE.md` 和实际代码。复制关键词后仍须阅读链接文档、检查 Git 工作区和复核当前数据，不能把本文数字当作未来批次的复验结果。
+更新日期：2026-11-19。本文供下一位接手模型快速建立上下文，不能替代 `AGENTS.md`、`CLAUDE.md` 和实际代码。复制关键词后仍须阅读链接文档、检查 Git 工作区和复核当前数据，不能把本文数字当作未来批次的复验结果。
 
 ## 1. 可直接复制给接手模型
 
 ```text
 你正在接手 MarketLens（2026 年上海科技大学金融科技竞赛）。先读 AGENTS.md、CLAUDE.md、README.md、docs/roadmap.md、docs/release-readiness.md、docs/releases/v0.6.13.md、docs/v0.6.13-test-build-fix.md、docs/v0.6.12-research-links.md，再运行 git status、git log 和 scripts/check_versions.py 核对实际状态。
 
-当前基线是 v0.6.13；移除 Testing Library 不支持的 `exact` 测试参数，保留 Playwright 精确匹配，不改变运行时代码、API、模型、规则或回放结果。后端 302 项、覆盖率 80.81%，前端 76 项、强制 TypeScript 重建、生产构建和固定端口扩展 E2E 通过；远端五项 CI 待准确提交推送后核验。先读 docs/v0.6.13-test-build-fix.md 和 docs/releases/v0.6.13.md。
+当前基线是 v0.6.13；移除 Testing Library 不支持的 `exact` 测试参数，保留 Playwright 精确匹配，不改变运行时代码、API、模型、规则或回放结果。后端 302 项、覆盖率 80.81%，前端 76 项、强制 TypeScript 重建、生产构建和固定端口扩展 E2E 通过；准确提交 `5e4f441cb7f10fe3254543f9f42294b4498078e3` 的工作流 `44335294740` 第三次运行中 backend、frontend、browser-e2e、flink、containers 五项均成功。先读 docs/v0.6.13-test-build-fix.md 和 docs/releases/v0.6.13.md。
 
 此前 v0.6.12 可分享市场研究链接已获固定网站验收并发布。链接恢复筛选但不冻结行情或模型结果，打开后不自动覆盖接收者工作区。准确提交 `5f4d438a8197a50edd200534a6d95523c9d262fa` 的 backend、browser-e2e、flink 成功，frontend 构建失败、containers 跳过，运行 `43881001347`，不能宣称五项通过。
 
@@ -38,7 +38,7 @@
 
 ### 当前性能基线
 
-- **当前 v0.6.13 已获初步验收并授权发布 / 干净构建修复 / 远端五项 CI 待准确提交核验**
+- **当前 v0.6.13 已发布 / 干净构建修复 / 准确提交工作流 44335294740 第三次五项 CI 均成功**
 - **此前 v0.6.12 已验收发布 / 远端 frontend 构建失败 / containers 跳过 / 历史结果不改写**
 - **目录 data_version 精确 SHA-256 / PRAGMA data_version / 自身导入主动失效 / 外部连接触发重算**
 - **非阻塞本地快速路径 / 目录锁竞争回退 / 缓存锁竞争回退 / 未命中回退 / 远程目录回退**
@@ -54,7 +54,7 @@
 - **v0.6.10 已验收发布 / 9 页 63 样本全成功 / 冷 p95 957.171ms / 热 906.960ms**
 - **v0.6.11 已验收发布 / 账号级研究工作区 / 后端 302 项 80.81% / 前端 71 项 / 扩展 E2E 通过**
 - **v0.6.12 已验收发布 / 版本化研究链接 / 不自动覆盖接收者工作区 / 前端 76 项**
-- **v0.6.13 已获初步验收并授权发布 / 移除 Testing Library exact 参数 / 完整本地回归通过 / 远端待核验**
+- **v0.6.13 已发布 / 移除 Testing Library exact 参数 / 完整本地回归通过 / 第三次远端五项 CI 均成功**
 - **当前源码页面复测 63/63 / 冷 p95 956.934ms / 热 896.131ms / 不是加速证据**
 - **Slow 4G p95 25,266.879ms / 仅参考 / 桌面本机合成环境不等于生产或公网**
 
